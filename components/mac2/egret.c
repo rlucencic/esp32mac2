@@ -47,6 +47,7 @@ static struct {
     int action;                     /* what EV_EGRET does */
     bool sys, full;                 /* the Mac's lines as last seen */
     bool xcvr;                      /* transceiver session asserted (PB3 low) */
+    bool attention_sent;            /* the packet's attention byte is in the Mac's SR */
     bool sr_written;                /* the Mac put a byte in the SR */
     uint8_t cmd[MAX_CMD];
     int cmd_len;
@@ -169,6 +170,7 @@ static void send_packet(void)
 {
     eg.packet_ready = false;
     eg.packet_pos = 0;
+    eg.attention_sent = false;
     eg.xcvr = true;
     eg.state = E_ATTENTION;
     act(ACT_ATTENTION, DELAY);
@@ -319,10 +321,21 @@ void egret_lines(bool sys, bool full)
     eg.sys = sys;
     eg.full = full;
     if (sys_rose) {
-        if (eg.state == E_ATTENTION && !via_sr_shifting_out(&via1)) {
+        if (eg.state == E_ATTENTION && eg.attention_sent && !via_sr_shifting_out(&via1)) {
             /* The Mac takes the packet */
             eg.state = E_SEND;
             act(ACT_GIVE, DELAY);
+        } else if (eg.state == E_ATTENTION) {
+            /* A command crossing a packet whose attention byte is still to
+             * come (the ROM checked transceiver session just before Egret
+             * raised it, and puts the SR in shift-out mode after raising
+             * system session): Egret takes the first byte, whose interrupt
+             * the Mac then counts as the attention byte (it finds
+             * transceiver session asserted, drops system session and
+             * raises it again to read the packet before it tries again)
+             */
+            eg.cmd_len = 0;
+            act(eg.sr_written && via_sr_shifting_out(&via1) ? ACT_TAKE : ACT_NONE, DELAY);
         } else {
             /* A command: the ROM raises system session first, then puts
              * the SR in shift-out mode, writes the byte and raises VIA
@@ -342,7 +355,11 @@ void egret_lines(bool sys, bool full)
     }
     if (sys_fell) {
         eg.sr_written = false;
-        if (eg.state == E_RECEIVE) {
+        if (eg.state == E_ATTENTION) {
+            if (!eg.attention_sent) {
+                act(ACT_ATTENTION, DELAY);  /* the Mac gave up before a byte */
+            }
+        } else if (eg.state == E_RECEIVE) {
             act(ACT_NONE, 0);
             command_done();
         } else if (eg.state == E_SEND) {
@@ -382,6 +399,8 @@ void egret_event(void)
             EGRET_LOG("%llu took %02x\n", (unsigned long long)(mac_now() - mac.frame_start), b);
             if (eg.state == E_RECEIVE && eg.cmd_len < MAX_CMD) {
                 eg.cmd[eg.cmd_len++] = b;
+            } else if (eg.state == E_ATTENTION) {
+                eg.attention_sent = true;   /* a crossing command's byte */
             }
         }
         break;
@@ -391,6 +410,7 @@ void egret_event(void)
             break;
         }
         EGRET_LOG("%llu attention\n", (unsigned long long)(mac_now() - mac.frame_start));
+        eg.attention_sent = true;
         via_sr_receive(&via1, 0x00);
         break;
     case ACT_GIVE:

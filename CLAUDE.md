@@ -205,6 +205,15 @@ The Mac II (`ii.c`, `jmfb.c`, `adb_via.c`, `rtc.c`):
   after it), and drops VIA full to ask for the next one. Giving the next
   byte when VIA full rose instead ran one byte ahead and negated PB3 too
   early: the ROM retried its PRAM write forever.
+- **Egret: a command crossing a packet** (found in `../esp32mac3`). The
+  ROM checks PB3 just before raising system session; Egret may raise
+  transceiver session in between (a tick packet). The ROM then sends its
+  first byte, sees PB3 asserted, drops system session and reads the
+  packet, taking its own byte's SR interrupt as the attention byte.
+  egret.c took the Mac's system session for "reading the packet" and gave
+  bytes into a shift-out SR: the LC hung in the ROM's send loop ($A14850,
+  Ticks 126) on the second boot of Mac OS 7.6.1 from fresh PRAM, at every
+  RAM size. Now Egret takes that byte and counts it as the attention.
 - **PRAM is in Egret's memory**: the ROM reads and writes it with commands
   02/08 at 6805 addresses $0100-$01FF ("NuMc" at $010C means valid);
   without 02 it found no signature and reset PRAM at every start.
