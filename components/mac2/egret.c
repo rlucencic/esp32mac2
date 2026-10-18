@@ -1,0 +1,431 @@
+/*
+ * Egret, the LC's system microcontroller (a 68HC05 with its own firmware),
+ * emulated at the level of its packets: the ADB keyboard and mouse (with
+ * autopoll), the real-time clock, parameter RAM, restart and power off.
+ *
+ * It talks to the Mac through VIA1's shift register, which Egret clocks
+ * (CB1), and three handshake lines:
+ *
+ *   PB5 (out)  system session: the Mac sends a command or reads a packet
+ *   PB4 (out)  VIA full: the Mac has put the next byte in the SR, or took one
+ *   PB3 (in)   transceiver session, active low: Egret has a packet
+ *
+ * Mac to Egret: the Mac puts the SR in shift-out mode, writes the first
+ * byte and raises system session and VIA full; Egret clocks it out (SR
+ * interrupt). For each further byte the Mac writes the SR and pulses VIA
+ * full (low, then high). Dropping system session ends the command, and
+ * Egret answers with a packet.
+ * Egret to Mac: Egret asserts transceiver session and clocks in an
+ * attention byte (SR interrupt). The Mac raises system session; Egret
+ * clocks in the packet's first byte. The Mac raises VIA full, reads the
+ * SR and drops VIA full for the next byte. Egret drops transceiver session
+ * with the last byte (the Mac checks it after each one), and the Mac drops
+ * system session.
+ *
+ * Commands are [type][command][data]: type 0 ADB (the ADB command byte),
+ * type 1 pseudo-command. Packets to the Mac are [type][flags][command]
+ * [data]: type 0 ADB (flags $40 autopoll data, $02 no device answered),
+ * 1 a pseudo-command's reply, 2 an error.
+ *
+ * The handshake as the LC ROM's own Egret code does it (Linux's
+ * via-cuda.c in Egret mode agrees); command numbers as Linux's and QEMU's
+ * Cuda (the same as Egret's).
+ */
+#include <string.h>
+#include <time.h>
+#include "mac_internal.h"
+
+#define DELAY           2500        /* cycles (160 us) for each step Egret takes */
+#define MAX_CMD         32
+#define MAX_PACKET      40
+
+enum { E_IDLE, E_RECEIVE, E_ATTENTION, E_SEND };
+enum { ACT_NONE, ACT_TAKE, ACT_ATTENTION, ACT_GIVE };
+
+static struct {
+    int state;
+    int action;                     /* what EV_EGRET does */
+    bool sys, full;                 /* the Mac's lines as last seen */
+    bool xcvr;                      /* transceiver session asserted (PB3 low) */
+    bool sr_written;                /* the Mac put a byte in the SR */
+    uint8_t cmd[MAX_CMD];
+    int cmd_len;
+    uint8_t packet[MAX_PACKET];
+    int packet_len, packet_pos;
+    bool packet_ready;              /* waiting to go out */
+    bool autopoll;
+    uint16_t devices;               /* autopoll device list (bit n = address n) */
+    uint8_t autopoll_ms;
+    int64_t time_offset;            /* Mac time minus host time, seconds */
+} eg;
+
+#ifdef ESP_PLATFORM
+#define EGRET_LOG(...)
+#else
+#include <stdlib.h>
+static int s_log = -1;
+#define EGRET_LOG(...)  do { if (s_log < 0) s_log = getenv("MAC_EGRET") != NULL; \
+                             if (s_log) printf("egret f%u: ", (unsigned)mac.frames), printf(__VA_ARGS__); } while (0)
+#endif
+
+/* ---- Clock: the host's local time; a time the Mac sets is an offset ---- */
+
+static int64_t days_from_civil(int y, int m, int d)
+{
+    y -= m <= 2;
+    int64_t era = (y >= 0 ? y : y - 399) / 400;
+    int64_t yoe = y - era * 400;
+    int64_t doy = (153 * (m + (m > 2 ? -3 : 9)) + 2) / 5 + d - 1;
+    int64_t doe = yoe * 365 + yoe / 4 - yoe / 100 + doy;
+    return era * 146097 + doe - 719468;
+}
+
+/* Seconds since 1904-01-01 in local time */
+static uint32_t host_mac_time(void)
+{
+    time_t now = time(NULL);
+    struct tm tm;
+    localtime_r(&now, &tm);
+    int64_t days = days_from_civil(tm.tm_year + 1900, tm.tm_mon + 1, tm.tm_mday) -
+                   days_from_civil(1904, 1, 1);
+    return (uint32_t)(days * 86400 + tm.tm_hour * 3600 + tm.tm_min * 60 + tm.tm_sec);
+}
+
+uint32_t egret_mac_time(void)
+{
+    return (uint32_t)(host_mac_time() + eg.time_offset);
+}
+
+/* ---- Parameter RAM ---- */
+
+/* As a freshly set up Mac has it (../esp32mac's defaults, as Mini vMac's):
+ * valid, both serial ports asynchronous (no AppleTalk)
+ */
+void mac_pram_defaults(uint8_t *pram, mac_model_t model)
+{
+    (void)model;
+    memset(pram, 0, MAC_PRAM_SIZE);
+    pram[0x10] = 0xA8;                  /* valid */
+    pram[0x13] = 0x22;                  /* serial ports A and B: async */
+    pram[0x14] = 204;                   /* port A, B configuration */
+    pram[0x15] = 10;
+    pram[0x16] = 204;
+    pram[0x17] = 10;
+    pram[0x1D] = 2;                     /* application font: Geneva */
+    pram[0x1E] = 0x63;                  /* key repeat delay, rate */
+    pram[0x08] = 0x03;                  /* speaker volume */
+    pram[0x09] = 0x88;                  /* caret blink, double-click time */
+    pram[0x0A] = 0x04;                  /* disk cache 128 KB */
+    pram[0x0B] = 0x0C;                  /* menu blink 3 */
+    pram[0x0C] = 'N';                   /* extended PRAM valid */
+    pram[0x0D] = 'u';
+    pram[0x0E] = 'M';
+    pram[0x0F] = 'c';
+    pram[0x01] = 0x80;
+    pram[0x02] = 0x4F;
+    /* The built-in video's slot PRAM (board $0029) as the ROM writes it,
+     * but in 256 colours ($83; $80 is black and white) on the 13" monitor
+     * (sense 6): the ROM keeps it while the monitor matches
+     */
+    pram[0x57] = 0x29;
+    pram[0x58] = 0x83;
+    pram[0x59] = 0xA6;
+    pram[0x5A] = 0x06;
+    pram[0x78] = 0x00;                  /* startup disk: none chosen */
+    pram[0x79] = 0x01;
+    pram[0x7A] = 0xFF;
+    pram[0x7B] = 0xFE;
+}
+
+static void pram_write(uint8_t address, uint8_t value)
+{
+    if (mac.pram[address] != value) {
+        mac.pram[address] = value;
+        mac.pram_dirty = true;
+    }
+}
+
+/* ---- Packets ---- */
+
+static void act(int action, uint64_t delay)
+{
+    eg.action = action;
+    mac_schedule(EV_EGRET, action == ACT_NONE ? EV_NEVER : mac_now() + delay);
+}
+
+/* A packet for the Mac: transceiver session now, the attention byte soon */
+static void send_packet(void)
+{
+    eg.packet_ready = false;
+    eg.packet_pos = 0;
+    eg.xcvr = true;
+    eg.state = E_ATTENTION;
+    act(ACT_ATTENTION, DELAY);
+}
+
+static void packet(uint8_t type, uint8_t flags, uint8_t command, const uint8_t *data, int len)
+{
+    if (len > MAX_PACKET - 3) {
+        len = MAX_PACKET - 3;
+    }
+    eg.packet[0] = type;
+    eg.packet[1] = flags;
+    eg.packet[2] = command;
+    if (len > 0) {
+        memcpy(eg.packet + 3, data, len);
+    }
+    eg.packet_len = 3 + len;
+    eg.packet_ready = true;
+}
+
+static void pseudo_command(uint8_t command, const uint8_t *data, int len)
+{
+    uint8_t out[MAX_PACKET];
+    int n = 0;
+    switch (command) {
+    case 0x01:      /* autopoll on / off */
+        eg.autopoll = len > 0 && data[0] != 0;
+        break;
+    case 0x02: {    /* read Egret's memory: parameter RAM is at $0100-$01FF */
+        uint16_t a = len >= 2 ? (data[0] << 8 | data[1]) : 0;
+        for (; n < MAX_PACKET - 3; n++, a++) {
+            out[n] = (a >> 8) == 1 ? mac.pram[a & 0xFF] : 0;
+        }
+        break;
+    }
+    case 0x08: {    /* write Egret's memory */
+        uint16_t a = len >= 2 ? (data[0] << 8 | data[1]) : 0;
+        for (int i = 2; i < len; i++, a++) {
+            if ((a >> 8) == 1) {
+                pram_write(a & 0xFF, data[i]);
+            }
+        }
+        break;
+    }
+    case 0x03: {    /* read the clock */
+        uint32_t t = egret_mac_time();
+        out[0] = t >> 24;
+        out[1] = t >> 16;
+        out[2] = t >> 8;
+        out[3] = t;
+        n = 4;
+        break;
+    }
+    case 0x07: {    /* read parameter RAM from an address on */
+        uint16_t a = len >= 2 ? (data[0] << 8 | data[1]) : 0;
+        for (; n < MAX_PACKET - 3 && a + n < MAC_PRAM_SIZE; n++) {
+            out[n] = mac.pram[a + n];
+        }
+        break;
+    }
+    case 0x09:      /* set the clock */
+        if (len >= 4) {
+            uint32_t t = (uint32_t)data[0] << 24 | data[1] << 16 | data[2] << 8 | data[3];
+            eg.time_offset = (int64_t)t - host_mac_time();
+        }
+        break;
+    case 0x0A:      /* power off */
+        MAC_LOGI("the Mac switched itself off");
+        mac.halted = true;
+        break;
+    case 0x0C: {    /* write parameter RAM */
+        uint16_t a = len >= 2 ? (data[0] << 8 | data[1]) : 0;
+        for (int i = 2; i < len && a < MAC_PRAM_SIZE; i++, a++) {
+            pram_write(a, data[i]);
+        }
+        break;
+    }
+    case 0x11:      /* restart */
+        mac_restart();
+        break;
+    case 0x14:      /* autopoll rate (ms) */
+        if (len > 0) {
+            eg.autopoll_ms = data[0];
+        }
+        break;
+    case 0x16:      /* ... read it back */
+        out[0] = eg.autopoll_ms;
+        n = 1;
+        break;
+    case 0x19:      /* autopoll device list */
+        if (len >= 2) {
+            eg.devices = data[0] << 8 | data[1];
+        }
+        break;
+    case 0x1A:
+        out[0] = eg.devices >> 8;
+        out[1] = eg.devices & 0xFF;
+        n = 2;
+        break;
+    case 0x0E:      /* the sound chip's (DFAC) settings */
+    case 0x12:      /* interrupt level */
+    case 0x13:      /* file server flag */
+    default:
+        break;
+    }
+    packet(1, 0, command, out, n);
+}
+
+static void command_done(void)
+{
+    eg.state = E_IDLE;
+    if (eg.cmd_len < 2) {
+        EGRET_LOG("short command (%d bytes)\n", eg.cmd_len);
+        return;
+    }
+#ifndef ESP_PLATFORM
+    char text[3 * MAX_CMD + 1];
+    for (int i = 0; i < eg.cmd_len; i++) {
+        snprintf(text + 3 * i, 4, " %02x", eg.cmd[i]);
+    }
+    EGRET_LOG("command%s\n", text);
+#endif
+    uint8_t type = eg.cmd[0], command = eg.cmd[1];
+    if (type == 0) {
+        uint8_t out[8];
+        int n = adb_command(command, eg.cmd + 2, eg.cmd_len - 2, out);
+        packet(0, n < 0 ? 0x02 : 0x00, command, out, n < 0 ? 0 : n);
+    } else if (type == 1) {
+        pseudo_command(command, eg.cmd + 2, eg.cmd_len - 2);
+    } else {
+        uint8_t out[2] = { type, command };
+        packet(2, 1, 0, out, 2);
+    }
+    send_packet();
+}
+
+/* ---- The handshake ---- */
+
+void egret_lines(bool sys, bool full)
+{
+    bool sys_rose = sys && !eg.sys, sys_fell = !sys && eg.sys;
+    bool full_rose = full && !eg.full, full_fell = !full && eg.full;
+    EGRET_LOG("%llu lines sys %d full %d state %d sr %s\n", (unsigned long long)(mac_now() - mac.frame_start),
+              sys, full, eg.state, via_sr_shifting_out() ? "out" : via_sr_shifting_in() ? "in" : "-");
+    eg.sys = sys;
+    eg.full = full;
+    if (sys_rose) {
+        if (eg.state == E_ATTENTION && !via_sr_shifting_out()) {
+            /* The Mac takes the packet */
+            eg.state = E_SEND;
+            act(ACT_GIVE, DELAY);
+        } else {
+            /* A command: the ROM raises system session first, then puts
+             * the SR in shift-out mode, writes the byte and raises VIA
+             * full; Linux has the byte in place already. (If a packet
+             * waits, the Mac finds transceiver session asserted after the
+             * first byte and reads the packet instead.)
+             */
+            if (eg.state != E_ATTENTION) {
+                eg.state = E_RECEIVE;
+            }
+            eg.cmd_len = 0;
+            if (eg.sr_written && via_sr_shifting_out()) {
+                act(ACT_TAKE, DELAY);
+            }
+        }
+        return;
+    }
+    if (sys_fell) {
+        eg.sr_written = false;
+        if (eg.state == E_RECEIVE) {
+            act(ACT_NONE, 0);
+            command_done();
+        } else if (eg.state == E_SEND) {
+            if (eg.packet_pos < eg.packet_len) {
+                EGRET_LOG("the Mac stopped the packet after %d of %d bytes\n", eg.packet_pos, eg.packet_len);
+            }
+            eg.state = E_IDLE;
+            eg.xcvr = false;
+            act(ACT_NONE, 0);
+            if (eg.packet_ready) {
+                send_packet();
+            }
+        }
+        return;
+    }
+    /* The Mac raises VIA full when it has written the next byte, and
+     * drops it to ask for the next one (raising it meanwhile to say it got
+     * the last)
+     */
+    if (full_rose && sys && (eg.state == E_RECEIVE || (eg.state == E_ATTENTION && via_sr_shifting_out()))) {
+        act(ACT_TAKE, DELAY);
+    }
+    if (full_fell && sys && eg.state == E_SEND) {
+        act(ACT_GIVE, DELAY);
+    }
+}
+
+void egret_event(void)
+{
+    int action = eg.action;
+    eg.action = ACT_NONE;
+    switch (action) {
+    case ACT_TAKE:
+        if (eg.sr_written && via_sr_shifting_out()) {
+            eg.sr_written = false;
+            uint8_t b = via_sr_send();
+            EGRET_LOG("%llu took %02x\n", (unsigned long long)(mac_now() - mac.frame_start), b);
+            if (eg.state == E_RECEIVE && eg.cmd_len < MAX_CMD) {
+                eg.cmd[eg.cmd_len++] = b;
+            }
+        }
+        break;
+    case ACT_ATTENTION:
+        if (!via_sr_shifting_in()) {
+            act(ACT_ATTENTION, DELAY);      /* the Mac isn't listening yet */
+            break;
+        }
+        EGRET_LOG("%llu attention\n", (unsigned long long)(mac_now() - mac.frame_start));
+        via_sr_receive(0x00);
+        break;
+    case ACT_GIVE:
+        if (eg.packet_pos < eg.packet_len) {
+            if (eg.packet_pos == eg.packet_len - 1) {
+                eg.xcvr = false;            /* this is the last */
+            }
+            EGRET_LOG("%llu gave %02x%s\n", (unsigned long long)(mac_now() - mac.frame_start),
+                      eg.packet[eg.packet_pos], eg.xcvr ? "" : " (last)");
+            via_sr_receive(eg.packet[eg.packet_pos++]);
+        }
+        break;
+    }
+}
+
+void via_sr_written(void)
+{
+    eg.sr_written = true;
+}
+
+void via_acr_changed(uint8_t old_acr, uint8_t acr)
+{
+    (void)old_acr;
+    (void)acr;
+}
+
+bool egret_xcvr_line(void)
+{
+    return !eg.xcvr;
+}
+
+/* Once a frame: autopoll the ADB devices while the bus is quiet */
+void egret_frame(void)
+{
+    if (!eg.autopoll || eg.state != E_IDLE || eg.packet_ready || eg.sys) {
+        return;
+    }
+    uint8_t command, out[8];
+    int n = adb_poll(eg.devices, &command, out);
+    if (n > 0) {
+        packet(0, 0x40, command, out, n);
+        send_packet();
+    }
+}
+
+void egret_reset(void)
+{
+    int64_t offset = eg.time_offset;
+    memset(&eg, 0, sizeof(eg));
+    eg.time_offset = offset;
+    eg.autopoll_ms = 11;
+}
