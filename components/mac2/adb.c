@@ -1,7 +1,8 @@
 /*
- * The ADB devices behind Egret: an Apple keyboard at address 2 and a mouse
- * at address 3. Egret hands each ADB command over whole: aaaa cc rr,
- * address, command (0 reset/flush, 2 listen, 3 talk), register.
+ * The ADB devices: an Apple keyboard at address 2 and a mouse at address 3,
+ * behind the LC's Egret or the II's transceiver (adb_via.c). Each ADB
+ * command comes whole: aaaa cc rr, address, command (0 reset/flush,
+ * 2 listen, 3 talk), register.
  */
 #include <string.h>
 #include "mac_internal.h"
@@ -139,6 +140,12 @@ int adb_command(uint8_t command, const uint8_t *data, int len, uint8_t *out)
         }
     }
     return -1;
+}
+
+bool adb_anything_to_report(void)
+{
+    int dx, dy;
+    return input_key_waiting() || adb_mouse_delta(&dx, &dy) || mouse_button() != adb.mouse_button;
 }
 
 int adb_poll(uint16_t devices, uint8_t *command, uint8_t *out)

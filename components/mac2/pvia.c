@@ -44,8 +44,8 @@ static void recalc(void)
     } else {
         pv.regs[3] &= ~0x80;
     }
-    if (irq != mac.pvia_irq) {
-        mac.pvia_irq = irq;
+    if (irq != mac.irq2) {
+        mac.irq2 = irq;
         mac_update_irq();
     }
 }
@@ -54,7 +54,7 @@ void pvia_reset(void)
 {
     memset(&pv, 0, sizeof(pv));
     pv.regs[2] = 0x7F;
-    mac.pvia_irq = false;
+    mac.irq2 = false;
     recalc();
 }
 
@@ -113,11 +113,11 @@ void pvia_write(uint32_t address, uint8_t v)
     switch (offset) {
     case 0x00:
         pv.regs[0] = v;
-        mem_set_24bit(!(v & 0x08));
+        lc_set_24bit(!(v & 0x08));
         break;
     case 0x01:
         pv.config = v;
-        mem_set_ram_config(v);
+        lc_set_ram_config(v);
         break;
     case 0x02:
         pv.regs[2] |= v & 0x40;

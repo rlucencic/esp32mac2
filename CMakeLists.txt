@@ -25,10 +25,14 @@ if(IDF_TARGET STREQUAL "esp32p4")
 endif()
 project(esp32mac2)
 
-# Macintosh ROM images (not in git) go to their own partitions on "idf.py flash"
-foreach(model lc)
-    set(rom_image "${CMAKE_SOURCE_DIR}/roms/${model}.rom")
+# Macintosh ROM images (not in git) go to their own partitions on "idf.py
+# flash": the LC's, the II's, and the II's video card's (the 8*24's)
+foreach(rom lc ii)
+    set(rom_image "${CMAKE_SOURCE_DIR}/roms/${rom}.rom")
     if(EXISTS "${rom_image}")
-        esptool_py_flash_to_partition(flash "rom_${model}" "${rom_image}")
+        esptool_py_flash_to_partition(flash "rom_${rom}" "${rom_image}")
     endif()
 endforeach()
+if(EXISTS "${CMAKE_SOURCE_DIR}/roms/mdc824.rom")
+    esptool_py_flash_to_partition(flash "rom_card" "${CMAKE_SOURCE_DIR}/roms/mdc824.rom")
+endif()

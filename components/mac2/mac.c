@@ -1,13 +1,13 @@
 /*
- * Macintosh LC: reset, the frame loop with its event scheduler, interrupts
- * and how VIA1's port lines are wired.
+ * The Macintosh LC and II: reset, the frame loop with its event scheduler,
+ * interrupts, the CPU's hooks; the machines themselves in lc.c and ii.c.
  *
  * Time is counted in CPU cycles. The CPU runs until the next scheduled
- * event (VIA timers, Egret, the sound FIFO) or the next frame landmark
- * (vertical blanking, the end of the frame).
+ * event (VIA timers, Egret or the ADB transceiver, the sound FIFO) or the
+ * next frame landmark (vertical blanking, the end of the frame).
  *
- * Interrupts (V8): VIA1 on level 1, the pseudo-VIA (slots, sound) on 2,
- * the SCC on 4, the interrupt switch on 7; the highest one wins.
+ * Interrupts: VIA1 on level 1; the LC's pseudo-VIA or the II's VIA2 (slots,
+ * sound) on 2; the SCC on 4; the interrupt switch on 7; the highest wins.
  */
 #include <stdlib.h>
 #include <string.h>
@@ -50,7 +50,7 @@ void mac_schedule(int event, uint64_t when)
 
 void mac_update_irq(void)
 {
-    int level = mac.nmi ? 7 : mac.scc_irq ? 4 : mac.pvia_irq ? 2 : mac.via_irq ? 1 : 0;
+    int level = mac.nmi ? 7 : mac.scc_irq ? 4 : mac.irq2 ? 2 : mac.irq1 ? 1 : 0;
     m68k_set_irq(level);
 }
 
@@ -62,30 +62,45 @@ void mac_restart(void)
     }
 }
 
+void mac_power_off(void)
+{
+    if (!mac.halted) {
+        MAC_LOGI("the Mac switched itself off");
+    }
+    mac.halted = true;
+    if (mac.cpu_running) {
+        m68k_end_timeslice();
+    }
+}
+
 mac_model_t mac_model(void)
 {
     return mac.model;
 }
 
-/* ---- VIA1 port wiring ---- */
-
-/* PA: the machine's identification (and diagnostics off) */
-uint8_t via_port_a_inputs(void)
+/* The sound chip's interrupt: the LC's pseudo-VIA, the II's VIA2 CB1 (low) */
+void asc_irq_changed(bool active)
 {
-    return 0xD5;
-}
-
-uint8_t via_port_b_inputs(void)
-{
-    return egret_xcvr_line() ? PB_EGRET_XCVR : 0;
-}
-
-void via_port_b_changed(uint8_t old_value, uint8_t value)
-{
-    if ((old_value ^ value) & (PB_EGRET_FULL | PB_EGRET_SYS)) {
-        egret_lines((value & PB_EGRET_SYS) != 0, (value & PB_EGRET_FULL) != 0);
+    if (mac.model == MAC_MODEL_LC) {
+        pvia_asc_irq(active);
+    } else {
+        via_cb1(&via2, !active);
     }
 }
+
+#ifndef ESP_PLATFORM
+void io_log(uint32_t a, bool write, uint8_t v)
+{
+    static int64_t mask = -1;
+    if (mask < 0) {
+        mask = getenv("MAC_IO") ? strtoll(getenv("MAC_IO"), NULL, 16) : 0;
+    }
+    if (mask && (mask == 1 || (mask >> ((a >> 13) & 0x3F) & 1))) {
+        printf("io f%u pc %08x %s %08x %02x\n", (unsigned)mac.frames, m68k_get_reg(NULL, M68K_REG_PPC),
+               write ? "W" : "R", (unsigned)a, (unsigned)v);
+    }
+}
+#endif
 
 /* ---- Musashi hooks ---- */
 
@@ -96,7 +111,8 @@ static int int_ack(int level)
 }
 
 /* Native calls from the replacement disk driver: ILLEGAL ($4AFC) followed
- * by a function word, only inside the driver in the ROM
+ * by a function word, only inside the driver in the ROM (at its 24-bit
+ * address, or the II's anywhere at $4xxxxxxx in 32-bit mode)
  */
 #define NATIVE_OPCODE   0x4AFC
 
@@ -106,13 +122,15 @@ int m68k_host_illegal(int opcode)
         return 0;
     }
     uint32_t pc = m68k_get_reg(NULL, M68K_REG_PC);
-    uint32_t at = (pc - 2) & 0xFFFFFF;
-    bool in_rom = (at & 0xF00000) == ROM_BASE || (mac.overlay && at < ROM_BASE);
+    uint32_t at = pc - 2;
+    bool in_rom = (at & 0xF00000) == mac.rom_mac_base ||
+                  (mac.model == MAC_MODEL_II && (at & 0xF0000000) == 0x40000000) ||
+                  (mac.overlay && (at & 0xFFFFFF) < mac.rom_size);
     uint32_t offset = at & mac.rom_mask;
     if (!in_rom || offset < mac.driver_start || offset >= mac.driver_end) {
         return 0;
     }
-    uint16_t function = mac_peek16(pc);
+    uint16_t function = *(const uint16_t *)(mac.rom + ((offset + 2) & mac.rom_mask));
     m68k_set_reg(M68K_REG_PC, pc + 2);
     int result = sony_native(function);
     m68k_set_reg(M68K_REG_D0, (uint32_t)result);
@@ -131,7 +149,7 @@ void m68k_host_halted(void)
 void m68k_host_exception(unsigned int vector)
 {
 #ifndef ESP_PLATFORM
-    /* Host build: bus and address errors */
+    /* Host build: bus and address errors, line F */
     static int logged;
     if ((vector == 2 || vector == 3 || vector == 11) && logged < 16) {
         logged++;
@@ -153,9 +171,17 @@ static void fire_events(void)
             continue;
         }
         switch (ev) {
-        case EV_VIA_T1:
-        case EV_VIA_T2:
-            via_timer_event(ev);
+        case EV_VIA1_T1:
+        case EV_VIA1_T2:
+            via_timer_event(&via1, ev);
+            break;
+        case EV_VIA2_T1:
+        case EV_VIA2_T2:
+            via_timer_event(&via2, ev);
+            break;
+        case EV_ADB:
+            mac.events[ev] = EV_NEVER;
+            adbx_event();
             break;
         case EV_EGRET:
             mac.events[ev] = EV_NEVER;
@@ -200,11 +226,10 @@ void mac_run_frame(void)
         mac_reset();
     }
     mouse_frame();
-    egret_frame();
-    via_set_flag(VIA_IF_CA1);           /* the 60.15 Hz tick */
-    pvia_vbl(false);
+    mac.ops->frame_start();
+    mac.ops->vbl(false);
     run_until(mac.frame_start + (uint64_t)VBL_LINE * LINE_CYCLES);
-    pvia_vbl(true);
+    mac.ops->vbl(true);
     run_until(mac.frame_start + FRAME_CYCLES);
 
     asc_frame_end();
@@ -234,24 +259,45 @@ void mac_reset(void)
     }
     mac.frame_start = mac.now;
     mac.halted = false;
-    mac.via_irq = mac.pvia_irq = mac.scc_irq = mac.nmi = false;
+    mac.irq1 = mac.irq2 = mac.scc_irq = mac.nmi = false;
     memset(mac.ram, 0, mac.ram_size);
-    memset(mac.vram, 0, MAC_VRAM_SIZE);
+    memset(mac.vram, 0, mac.vram_size);
 
-    mem_reset();
-    via_reset();
-    pvia_reset();
-    egret_reset();
+    mac.ops->reset();
     adb_reset();
     input_reset();
-    video_reset();
-    asc_reset();
     scc_reset();
     swim_reset();
     scsi_reset();
     sony_reset();
     mac_update_irq();
     m68k_pulse_reset();
+}
+
+/* ---- Screen: the machine's ---- */
+
+void mac_screen_size(int *width, int *height)
+{
+    mac.ops->screen_size(width, height);
+}
+
+int mac_screen_depth(void)
+{
+    return mac.ops->screen_depth();
+}
+
+void mac_render_line_rgb565(int y, uint16_t *dst)
+{
+    mac.ops->render_line(y, dst);
+}
+
+uint32_t mac_screen_signature(void)
+{
+    static uint32_t signature = 1;
+    if (mac.ops && mac.ops->screen_changed()) {
+        signature++;
+    }
+    return signature;
 }
 
 /* ---- The debugger (emudbg.h) ---- */
@@ -292,6 +338,18 @@ static emudbg_machine_t s_dbg = {
     .render_line = mac_render_line_rgb565,
 };
 
+static bool ram_size_ok(mac_model_t model, uint32_t ram)
+{
+    uint32_t mb = ram / MB;
+    if (ram % MB) {
+        return false;
+    }
+    if (model == MAC_MODEL_LC) {
+        return mb == 2 || mb == 4 || mb == 6 || mb == 10;
+    }
+    return mb == 2 || mb == 4 || mb == 8;
+}
+
 bool mac_init(const mac_config_t *config)
 {
     memset(&mac, 0, sizeof(mac));
@@ -301,22 +359,28 @@ bool mac_init(const mac_config_t *config)
                  config->rom[0], config->rom[1], config->rom[2], config->rom[3]);
         return false;
     }
-    uint32_t ram = config->ram_size;
-    if (ram != 2 * 0x100000 && ram != 4 * 0x100000 && ram != 6 * 0x100000 && ram != 10 * 0x100000) {
-        MAC_LOGW("RAM size %lu: needs 2, 4, 6 or 10 MB", (unsigned long)ram);
+    if (!ram_size_ok(mac.model, config->ram_size)) {
+        MAC_LOGW("RAM size %lu MB: the %s takes %s", (unsigned long)(config->ram_size / MB), name,
+                 mac.model == MAC_MODEL_LC ? "2, 4, 6 or 10 MB" : "2, 4 or 8 MB");
         return false;
     }
     if (config->vram == NULL) {
         return false;
     }
+    if (mac.model == MAC_MODEL_II && (config->card_rom == NULL || config->card_rom_size != MAC_CARD_ROM_SIZE)) {
+        MAC_LOGW("the Mac II needs the Display Card 8*24's ROM (341-0868, 32 KB)");
+        return false;
+    }
+    mac.ops = mac.model == MAC_MODEL_LC ? &lc_ops : &ii_ops;
     mac.ram = config->ram;
-    mac.ram_size = ram;
-    mac.simm_size = ram - BOARD_RAM;
+    mac.ram_size = config->ram_size;
     mac.vram = config->vram;
     mac.rom = config->rom_copy;
     mac.rom_size = config->rom_size;
     mac.rom_mask = config->rom_size - 1;
     mac.monitor = config->monitor;
+    mac.card_rom = config->card_rom;
+    mac.card_rom_size = config->card_rom_size;
     mac.pram = config->pram;
     if (mac.pram[0x10] != 0xA8) {
         mac_pram_defaults(mac.pram, mac.model);
@@ -325,13 +389,19 @@ bool mac_init(const mac_config_t *config)
     mac.pram_changed = config->pram_changed;
     mac.disk_ejected = config->disk_ejected;
 
+    if (mac.model == MAC_MODEL_LC) {
+        lc_init();
+    } else {
+        ii_init();
+    }
     if (!rom_prepare(config->rom, config->rom_size)) {
         return false;
     }
-    MAC_LOGI("%s, %lu MB RAM", name, (unsigned long)(ram >> 20));
+    MAC_LOGI("%s, %lu MB RAM", name, (unsigned long)(mac.ram_size / MB));
 
     m68k_init();
     m68k_set_cpu_type(M68K_CPU_TYPE_68020);
+    m68k_set_fpu(mac.model == MAC_MODEL_II);       /* the II's 68881 */
     if (config->opcode_tables != NULL) {
         m68k_use_table_copies(config->opcode_tables);
     }

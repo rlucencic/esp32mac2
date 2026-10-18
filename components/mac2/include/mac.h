@@ -3,9 +3,15 @@
  * to 10 MB, VIA, pseudo-VIA, video from its own VRAM through the Ariel
  * colour table, 640 x 480 in 1 to 8 bits per pixel or 512 x 384 up to
  * thousands of colours, the ASC's sound FIFO), the Egret microcontroller
- * (ADB keyboard and mouse, real-time clock, parameter RAM). Disk images
- * (any size) go through a paravirtual replacement of the ROM's .Sony
- * driver, as in ../esp32mac.
+ * (ADB keyboard and mouse, real-time clock, parameter RAM).
+ *
+ * Macintosh II: 68020 and 68881 at 15.67 MHz, two VIAs (ADB through VIA1's
+ * shift register, the real-time clock), the original ASC, NuBus with the
+ * Macintosh Display Card 8*24 in slot $9 (640 x 480 up to millions of
+ * colours), the 24-bit address translation.
+ *
+ * Disk images (any size) go through a paravirtual replacement of the ROM's
+ * .Sony driver, as in ../esp32mac.
  *
  * Platform independent: the caller provides all memory and drives the
  * emulation one video frame at a time.
@@ -18,6 +24,7 @@
 
 typedef enum {
     MAC_MODEL_LC,           /* 512 KB ROM, V8, Egret */
+    MAC_MODEL_II,           /* 256 KB ROM, VIA2, NuBus, the 8*24 card in slot $9, 68881 */
 } mac_model_t;
 
 typedef enum {
@@ -31,18 +38,25 @@ typedef enum {
 
 #define MAC_DRIVES              3       /* Mac drive numbers 1 .. 3 */
 #define MAC_PRAM_SIZE           256     /* parameter RAM */
-#define MAC_VRAM_SIZE           0x80000 /* the LC's 512 KB of video RAM */
+#define MAC_VRAM_SIZE           0x100000    /* video RAM: the LC's 512 KB, the 8*24's 1 MB */
+#define MAC_CARD_ROM_SIZE       0x8000      /* the 8*24 card's declaration ROM */
 #define MAC_OPCODE_TABLES_SIZE  0x50000
 
 typedef struct {
     uint8_t *ram;           /* ram_size bytes */
-    uint32_t ram_size;      /* 2, 4, 6 or 10 MB (2 MB on the board, a SIMM pair) */
+    uint32_t ram_size;      /* LC: 2, 4, 6 or 10 MB (2 MB on the board, a SIMM pair);
+                             * II: 2, 4 or 8 MB */
     uint8_t *vram;          /* MAC_VRAM_SIZE bytes */
     const uint8_t *rom;     /* ROM image as dumped (big-endian) */
-    uint32_t rom_size;      /* 512 KB */
+    uint32_t rom_size;      /* LC 512 KB, II 256 KB */
     uint8_t *rom_copy;      /* rom_size bytes: working copy (it gets patched);
                              * may be the same buffer as rom */
     mac_monitor_t monitor;
+    /* II: the Macintosh Display Card 8*24's declaration ROM (341-0868,
+     * MAC_CARD_ROM_SIZE bytes, as dumped)
+     */
+    const uint8_t *card_rom;
+    uint32_t card_rom_size;
 
     /* MAC_PRAM_SIZE bytes of parameter RAM, kept by the caller across
      * power-offs. The Mac writes into it; pram_changed is called (from the
@@ -75,7 +89,7 @@ typedef struct {
  */
 void mac_pram_defaults(uint8_t *pram, mac_model_t model);
 
-/* Name of a known ROM ("Macintosh LC") and its model; NULL if the image
+/* Name of a known ROM ("Macintosh LC", "Macintosh II") and its model; NULL if the image
  * isn't a ROM this emulator knows how to patch
  */
 const char *mac_rom_identify(const uint8_t *rom, uint32_t size, mac_model_t *model);

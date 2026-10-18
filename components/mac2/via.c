@@ -1,10 +1,14 @@
 /*
- * VIA1 at $F00000 (register n at + n * $200, either byte).
+ * VIA 6522 (the LC's VIA1, the Mac II's VIA1 and VIA2): register n at
+ * + n * $200, either byte.
  *
  * Timers count at CPU / 20 and are kept as (start time, start value), so
- * they cost nothing between their scheduled expiry events. The shift
- * register talks to Egret under its clock: the device side is
- * via_sr_send() / via_sr_receive(). (From ../esp32mac's VIA.)
+ * they cost nothing between their scheduled expiry events. T1 can drive
+ * PB7 (the Mac II's 60.15 Hz tick: VIA2 PB7 into VIA1 CA1). CA1, CA2,
+ * CB1 and CB2 are inputs with the edge the PCR asks for. The shift register
+ * talks to a device under its clock (Egret, the ADB transceiver): the
+ * device side is via_sr_send() / via_sr_receive(). The machine wires the
+ * ports through via_wiring_t. (From ../esp32mac's VIA.)
  */
 #include <string.h>
 #include "mac_internal.h"
@@ -15,52 +19,97 @@ enum {
 };
 
 #define ACR_T1_FREE     0x40
+#define ACR_T1_PB7      0x80
 #define ACR_SR_MODE(a)  (((a) >> 2) & 7)
 #define SR_IN_EXT       3
 #define SR_OUT_EXT      7
 
-static struct {
-    uint8_t ora, orb, ddra, ddrb;
-    uint8_t sr, acr, pcr, ifr, ier;
-    uint8_t t1ll, t1lh, t2ll;
-    uint64_t t1_start;              /* cycle time the counter held t1_value */
-    uint16_t t1_value;
-    bool t1_armed;                  /* one-shot: an interrupt still due */
-    uint64_t t2_start;
-    uint16_t t2_value;
-    bool t2_armed;
-} via;
+via_t via1, via2;
 
-/* Effective output levels: inputs (DDR 0) read as pulled high */
-uint8_t via_port_a(void)
+void via_init(via_t *v, const via_wiring_t *wiring, int ev_t1, int ev_t2)
 {
-    return (via.ora & via.ddra) | ~via.ddra;
+    memset(v, 0, sizeof(*v));
+    v->wiring = wiring;
+    v->ev_t1 = ev_t1;
+    v->ev_t2 = ev_t2;
+    v->ca1 = v->ca2 = v->cb1 = v->cb2 = true;
+    v->pb7 = true;
 }
 
-uint8_t via_port_b(void)
+/* Effective output levels: inputs (DDR 0) read as pulled high; PB7 is
+ * T1's when the ACR says so
+ */
+uint8_t via_port_a(const via_t *v)
 {
-    return (via.orb & via.ddrb) | ~via.ddrb;
+    return (v->ora & v->ddra) | ~v->ddra;
 }
 
-static void update_irq(void)
+uint8_t via_port_b(const via_t *v)
 {
-    bool irq = (via.ifr & via.ier & 0x7F) != 0;
-    if (irq != mac.via_irq) {
-        mac.via_irq = irq;
-        mac_update_irq();
+    uint8_t b = (v->orb & v->ddrb) | ~v->ddrb;
+    if (v->acr & ACR_T1_PB7) {
+        b = (b & 0x7F) | (v->pb7 ? 0x80 : 0);
+    }
+    return b;
+}
+
+static void update_irq(via_t *v)
+{
+    bool irq = (v->ifr & v->ier & 0x7F) != 0;
+    if (irq != v->irq) {
+        v->irq = irq;
+        v->wiring->irq_changed(irq);
     }
 }
 
-void via_set_flag(int flag)
+void via_set_flag(via_t *v, int flag)
 {
-    via.ifr |= flag;
-    update_irq();
+    v->ifr |= flag;
+    update_irq(v);
 }
 
-static void clear_flag(int flag)
+static void clear_flag(via_t *v, int flag)
 {
-    via.ifr &= ~flag;
-    update_irq();
+    v->ifr &= ~flag;
+    update_irq(v);
+}
+
+/* ---- Control lines: inputs with the active edge from the PCR ---- */
+
+void via_ca1(via_t *v, bool level)
+{
+    bool rising = (v->pcr & 0x01) != 0;
+    if (level != v->ca1 && level == rising) {
+        via_set_flag(v, VIA_IF_CA1);
+    }
+    v->ca1 = level;
+}
+
+void via_ca2(via_t *v, bool level)
+{
+    bool rising = (v->pcr & 0x04) != 0;
+    if (!(v->pcr & 0x08) && level != v->ca2 && level == rising) {
+        via_set_flag(v, VIA_IF_CA2);
+    }
+    v->ca2 = level;
+}
+
+void via_cb1(via_t *v, bool level)
+{
+    bool rising = (v->pcr & 0x10) != 0;
+    if (level != v->cb1 && level == rising) {
+        via_set_flag(v, VIA_IF_CB1);
+    }
+    v->cb1 = level;
+}
+
+void via_cb2(via_t *v, bool level)
+{
+    bool rising = (v->pcr & 0x40) != 0;
+    if (!(v->pcr & 0x80) && level != v->cb2 && level == rising) {
+        via_set_flag(v, VIA_IF_CB2);
+    }
+    v->cb2 = level;
 }
 
 /* ---- Timers ---- */
@@ -71,224 +120,279 @@ static uint16_t counter(uint64_t start, uint16_t value)
     return (uint16_t)(value - ticks);
 }
 
-static void schedule_t1(void)
+static void schedule_t1(via_t *v)
 {
-    if (via.t1_armed || (via.acr & ACR_T1_FREE)) {
-        mac_schedule(EV_VIA_T1, via.t1_start + ((uint64_t)via.t1_value + 1) * VIA_DIVIDER);
+    if (v->t1_armed || (v->acr & ACR_T1_FREE)) {
+        mac_schedule(v->ev_t1, v->t1_start + ((uint64_t)v->t1_value + 1) * VIA_DIVIDER);
     } else {
-        mac_schedule(EV_VIA_T1, EV_NEVER);
+        mac_schedule(v->ev_t1, EV_NEVER);
     }
 }
 
-static void schedule_t2(void)
+static void schedule_t2(via_t *v)
 {
-    mac_schedule(EV_VIA_T2, via.t2_armed ?
-                 via.t2_start + ((uint64_t)via.t2_value + 1) * VIA_DIVIDER : EV_NEVER);
+    mac_schedule(v->ev_t2, v->t2_armed ?
+                 v->t2_start + ((uint64_t)v->t2_value + 1) * VIA_DIVIDER : EV_NEVER);
 }
 
-void via_timer_event(int event)
+static void set_pb7(via_t *v, bool level)
+{
+    if (level == v->pb7) {
+        return;
+    }
+    uint8_t before = via_port_b(v);
+    v->pb7 = level;
+    uint8_t after = via_port_b(v);
+    if (before != after) {
+        v->wiring->port_b_changed(before, after);
+    }
+}
+
+void via_timer_event(via_t *v, int event)
 {
     uint64_t when = mac.events[event];
-    if (event == EV_VIA_T1) {
-        if (via.acr & ACR_T1_FREE) {
+    if (event == v->ev_t1) {
+        if (v->acr & ACR_T1_FREE) {
             /* Reload from the latches, one more tick for the reload */
-            via.t1_start = when + VIA_DIVIDER;
-            via.t1_value = (via.t1lh << 8) | via.t1ll;
-            via_set_flag(VIA_IF_T1);
-        } else {
-            if (via.t1_armed) {
-                via.t1_armed = false;
-                via_set_flag(VIA_IF_T1);
-            }
+            v->t1_start = when + VIA_DIVIDER;
+            v->t1_value = (v->t1lh << 8) | v->t1ll;
+            via_set_flag(v, VIA_IF_T1);
+            set_pb7(v, !v->pb7);
+        } else if (v->t1_armed) {
+            v->t1_armed = false;
+            via_set_flag(v, VIA_IF_T1);
+            set_pb7(v, true);
         }
-        schedule_t1();
+        schedule_t1(v);
     } else {
-        if (via.t2_armed) {
-            via.t2_armed = false;
-            via_set_flag(VIA_IF_T2);
+        if (v->t2_armed) {
+            v->t2_armed = false;
+            via_set_flag(v, VIA_IF_T2);
         }
-        schedule_t2();
+        schedule_t2(v);
     }
 }
 
 /* ---- Shift register (device side) ---- */
 
-bool via_sr_shifting_in(void)
+bool via_sr_shifting_in(const via_t *v)
 {
-    return ACR_SR_MODE(via.acr) == SR_IN_EXT;
+    return ACR_SR_MODE(v->acr) == SR_IN_EXT;
 }
 
-bool via_sr_shifting_out(void)
+bool via_sr_shifting_out(const via_t *v)
 {
-    return ACR_SR_MODE(via.acr) == SR_OUT_EXT;
+    return ACR_SR_MODE(v->acr) == SR_OUT_EXT;
 }
 
-void via_sr_receive(uint8_t value)
+void via_sr_receive(via_t *v, uint8_t value)
 {
-    if (via_sr_shifting_in()) {
-        via.sr = value;
-        via_set_flag(VIA_IF_SR | VIA_IF_CB1);
+    if (via_sr_shifting_in(v)) {
+        v->sr = value;
+        via_set_flag(v, VIA_IF_SR | VIA_IF_CB1);
     }
 }
 
-uint8_t via_sr_send(void)
+uint8_t via_sr_send(via_t *v)
 {
-    if (!via_sr_shifting_out()) {
+    if (!via_sr_shifting_out(v)) {
         return 0;
     }
-    via_set_flag(VIA_IF_SR | VIA_IF_CB1);
-    return via.sr;
+    via_set_flag(v, VIA_IF_SR | VIA_IF_CB1);
+    return v->sr;
 }
 
 /* ---- Registers ---- */
 
-static void port_b_write(uint8_t orb, uint8_t ddrb)
+static void port_a_write(via_t *v, uint8_t ora, uint8_t ddra)
 {
-    uint8_t before = via_port_b();
-    via.orb = orb;
-    via.ddrb = ddrb;
-    uint8_t after = via_port_b();
-    if (before != after) {
-        via_port_b_changed(before, after);
+    uint8_t before = via_port_a(v);
+    v->ora = ora;
+    v->ddra = ddra;
+    uint8_t after = via_port_a(v);
+    if (before != after && v->wiring->port_a_changed) {
+        v->wiring->port_a_changed(before, after);
     }
 }
 
-void via_reset(void)
+/* Port B writes always reach the wiring, changed or not (the II's RTC
+ * follows the data direction too)
+ */
+static void port_b_write(via_t *v, uint8_t orb, uint8_t ddrb)
 {
-    uint8_t b = via_port_b();
-    memset(&via, 0, sizeof(via));
-    mac.via_irq = false;
-    mac_update_irq();
-    mac_schedule(EV_VIA_T1, EV_NEVER);
-    mac_schedule(EV_VIA_T2, EV_NEVER);
-    via_port_b_changed(b, via_port_b());
+    uint8_t before = via_port_b(v);
+    v->orb = orb;
+    v->ddrb = ddrb;
+    v->wiring->port_b_changed(before, via_port_b(v));
 }
 
-uint8_t via_read(uint32_t address)
+void via_reset(via_t *v)
+{
+    uint8_t a = via_port_a(v), b = via_port_b(v);
+    const via_wiring_t *wiring = v->wiring;
+    int ev_t1 = v->ev_t1, ev_t2 = v->ev_t2;
+    bool ca1 = v->ca1, ca2 = v->ca2, cb1 = v->cb1, cb2 = v->cb2;
+    via_init(v, wiring, ev_t1, ev_t2);
+    v->ca1 = ca1;
+    v->ca2 = ca2;
+    v->cb1 = cb1;
+    v->cb2 = cb2;
+    wiring->irq_changed(false);
+    mac_schedule(ev_t1, EV_NEVER);
+    mac_schedule(ev_t2, EV_NEVER);
+    /* Everything is an input now (reads as high) */
+    if (wiring->port_a_changed && a != via_port_a(v)) {
+        wiring->port_a_changed(a, via_port_a(v));
+    }
+    if (b != via_port_b(v)) {
+        wiring->port_b_changed(b, via_port_b(v));
+    }
+}
+
+/* Port accesses clear CA1/CB1, and CA2/CB2 unless they are independent
+ * interrupts (or outputs)
+ */
+static void port_a_access(via_t *v)
+{
+    clear_flag(v, ((v->pcr & 0x0A) == 0 ? VIA_IF_CA2 : 0) | VIA_IF_CA1);
+}
+
+static void port_b_access(via_t *v)
+{
+    clear_flag(v, ((v->pcr & 0xA0) == 0 ? VIA_IF_CB2 : 0) | VIA_IF_CB1);
+}
+
+uint8_t via_read(via_t *v, uint32_t address)
 {
     switch ((address >> 9) & 0xF) {
     case R_ORB:
-        return (via.orb & via.ddrb) | (via_port_b_inputs() & ~via.ddrb);
+        port_b_access(v);
+        return (via_port_b(v) & v->ddrb) | (v->wiring->port_b_inputs() & ~v->ddrb);
     case R_ORA:
+        port_a_access(v);
+        /* fall through */
     case R_ORA_NH:
-        if ((via.pcr & 0x0E) == 0) {
-            clear_flag(VIA_IF_CA2);
-        }
-        clear_flag(VIA_IF_CA1);
-        return (via.ora & via.ddra) | (via_port_a_inputs() & ~via.ddra);
+        return (v->ora & v->ddra) | (v->wiring->port_a_inputs() & ~v->ddra);
     case R_DDRB:
-        return via.ddrb;
+        return v->ddrb;
     case R_DDRA:
-        return via.ddra;
+        return v->ddra;
     case R_T1CL:
-        clear_flag(VIA_IF_T1);
-        return counter(via.t1_start, via.t1_value) & 0xFF;
+        clear_flag(v, VIA_IF_T1);
+        return counter(v->t1_start, v->t1_value) & 0xFF;
     case R_T1CH:
-        return counter(via.t1_start, via.t1_value) >> 8;
+        return counter(v->t1_start, v->t1_value) >> 8;
     case R_T1LL:
-        return via.t1ll;
+        return v->t1ll;
     case R_T1LH:
-        return via.t1lh;
+        return v->t1lh;
     case R_T2CL:
-        clear_flag(VIA_IF_T2);
-        return counter(via.t2_start, via.t2_value) & 0xFF;
+        clear_flag(v, VIA_IF_T2);
+        return counter(v->t2_start, v->t2_value) & 0xFF;
     case R_T2CH:
-        return counter(via.t2_start, via.t2_value) >> 8;
+        return counter(v->t2_start, v->t2_value) >> 8;
     case R_SR:
-        clear_flag(VIA_IF_SR);
-        return via.sr;
+        clear_flag(v, VIA_IF_SR);
+        return v->sr;
     case R_ACR:
-        return via.acr;
+        return v->acr;
     case R_PCR:
-        return via.pcr;
+        return v->pcr;
     case R_IFR:
-        return via.ifr | ((via.ifr & via.ier & 0x7F) ? 0x80 : 0);
+        return v->ifr | ((v->ifr & v->ier & 0x7F) ? 0x80 : 0);
     case R_IER:
-        return via.ier | 0x80;
+        return v->ier | 0x80;
     }
     return 0;
 }
 
-void via_write(uint32_t address, uint8_t v)
+void via_write(via_t *v, uint32_t address, uint8_t value)
 {
     switch ((address >> 9) & 0xF) {
     case R_ORB:
-        port_b_write(v, via.ddrb);
+        port_b_access(v);
+        port_b_write(v, value, v->ddrb);
         break;
     case R_ORA:
+        port_a_access(v);
+        port_a_write(v, value, v->ddra);
+        break;
     case R_ORA_NH:
-        if ((via.pcr & 0x0E) == 0) {
-            clear_flag(VIA_IF_CA2);
-        }
-        clear_flag(VIA_IF_CA1);
-        via.ora = v;
+        port_a_write(v, value, v->ddra);
         break;
     case R_DDRB:
-        port_b_write(via.orb, v);
+        port_b_write(v, v->orb, value);
         break;
     case R_DDRA:
-        via.ddra = v;
+        port_a_write(v, v->ora, value);
         break;
     case R_T1CL:
     case R_T1LL:
-        via.t1ll = v;
+        v->t1ll = value;
         break;
     case R_T1CH:
-        via.t1lh = v;
-        via.t1_value = (v << 8) | via.t1ll;
-        via.t1_start = mac_now();
-        via.t1_armed = true;
-        clear_flag(VIA_IF_T1);
-        schedule_t1();
+        v->t1lh = value;
+        v->t1_value = (value << 8) | v->t1ll;
+        v->t1_start = mac_now();
+        v->t1_armed = true;
+        clear_flag(v, VIA_IF_T1);
+        if (!(v->acr & ACR_T1_FREE)) {
+            set_pb7(v, false);      /* one-shot: PB7 low until it runs out */
+        }
+        schedule_t1(v);
         break;
     case R_T1LH:
-        via.t1lh = v;
-        clear_flag(VIA_IF_T1);
+        v->t1lh = value;
+        clear_flag(v, VIA_IF_T1);
         break;
     case R_T2CL:
-        via.t2ll = v;
+        v->t2ll = value;
         break;
     case R_T2CH:
-        via.t2_value = (v << 8) | via.t2ll;
-        via.t2_start = mac_now();
-        via.t2_armed = true;
-        clear_flag(VIA_IF_T2);
-        schedule_t2();
+        v->t2_value = (value << 8) | v->t2ll;
+        v->t2_start = mac_now();
+        v->t2_armed = true;
+        clear_flag(v, VIA_IF_T2);
+        schedule_t2(v);
         break;
     case R_SR:
-        via.sr = v;
-        clear_flag(VIA_IF_SR);
-        via_sr_written();
+        v->sr = value;
+        clear_flag(v, VIA_IF_SR);
+        if (v->wiring->sr_written) {
+            v->wiring->sr_written();
+        }
         break;
     case R_ACR: {
-        uint8_t old = via.acr;
-        if ((old ^ v) & ACR_T1_FREE) {
+        uint8_t old = v->acr, before = via_port_b(v);
+        if ((old ^ value) & ACR_T1_FREE) {
             /* Keep the count, change the mode */
-            via.t1_value = counter(via.t1_start, via.t1_value);
-            via.t1_start = mac_now();
+            v->t1_value = counter(v->t1_start, v->t1_value);
+            v->t1_start = mac_now();
         }
-        via.acr = v;
-        if (ACR_SR_MODE(v) == 0) {
-            clear_flag(VIA_IF_SR);
+        v->acr = value;
+        if (ACR_SR_MODE(value) == 0) {
+            clear_flag(v, VIA_IF_SR);
         }
-        schedule_t1();
-        via_acr_changed(old, v);
+        schedule_t1(v);
+        if (before != via_port_b(v)) {
+            v->wiring->port_b_changed(before, via_port_b(v));
+        }
         break;
     }
     case R_PCR:
-        via.pcr = v;
+        v->pcr = value;
         break;
     case R_IFR:
-        via.ifr &= ~v & 0x7F;
-        update_irq();
+        v->ifr &= ~value & 0x7F;
+        update_irq(v);
         break;
     case R_IER:
-        if (v & 0x80) {
-            via.ier |= v & 0x7F;
+        if (value & 0x80) {
+            v->ier |= value & 0x7F;
         } else {
-            via.ier &= ~v & 0x7F;
+            v->ier &= ~value & 0x7F;
         }
-        update_irq();
+        update_irq(v);
         break;
     }
 }

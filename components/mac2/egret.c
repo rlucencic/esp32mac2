@@ -56,6 +56,9 @@ static struct {
     bool autopoll;
     uint16_t devices;               /* autopoll device list (bit n = address n) */
     uint8_t autopoll_ms;
+    uint8_t tick_mode;              /* $1B: one-second tick packets (0 off) */
+    uint64_t next_tick;
+    bool tick_due;
     int64_t time_offset;            /* Mac time minus host time, seconds */
 } eg;
 
@@ -81,7 +84,7 @@ static int64_t days_from_civil(int y, int m, int d)
 }
 
 /* Seconds since 1904-01-01 in local time */
-static uint32_t host_mac_time(void)
+uint32_t host_mac_time(void)
 {
     time_t now = time(NULL);
     struct tm tm;
@@ -103,7 +106,6 @@ uint32_t egret_mac_time(void)
  */
 void mac_pram_defaults(uint8_t *pram, mac_model_t model)
 {
-    (void)model;
     memset(pram, 0, MAC_PRAM_SIZE);
     pram[0x10] = 0xA8;                  /* valid */
     pram[0x13] = 0x22;                  /* serial ports A and B: async */
@@ -123,14 +125,23 @@ void mac_pram_defaults(uint8_t *pram, mac_model_t model)
     pram[0x0F] = 'c';
     pram[0x01] = 0x80;
     pram[0x02] = 0x4F;
-    /* The built-in video's slot PRAM (board $0029) as the ROM writes it,
-     * but in 256 colours ($83; $80 is black and white) on the 13" monitor
-     * (sense 6): the ROM keeps it while the monitor matches
+    /* The video's slot PRAM as the ROM writes it, but in 256 colours ($83;
+     * $80 is black and white): the LC's built-in video (board $0029, the
+     * 13" monitor's sense 6 at $5A), the II's 8*24 card in slot $9 (board
+     * $0027). The ROM keeps it while the board (and monitor) match.
      */
-    pram[0x57] = 0x29;
-    pram[0x58] = 0x83;
-    pram[0x59] = 0xA6;
-    pram[0x5A] = 0x06;
+    if (model == MAC_MODEL_LC) {
+        pram[0x57] = 0x29;
+        pram[0x58] = 0x83;
+        pram[0x59] = 0xA6;
+        pram[0x5A] = 0x06;
+    } else {
+        pram[0x47] = 0x27;
+        pram[0x48] = 0x83;
+        pram[0x49] = 0xA6;
+        pram[0x4A] = 0xA6;
+        pram[0x4C] = 0xFF;
+    }
     pram[0x78] = 0x00;                  /* startup disk: none chosen */
     pram[0x79] = 0x01;
     pram[0x7A] = 0xFF;
@@ -225,8 +236,7 @@ static void pseudo_command(uint8_t command, const uint8_t *data, int len)
         }
         break;
     case 0x0A:      /* power off */
-        MAC_LOGI("the Mac switched itself off");
-        mac.halted = true;
+        mac_power_off();
         break;
     case 0x0C: {    /* write parameter RAM */
         uint16_t a = len >= 2 ? (data[0] << 8 | data[1]) : 0;
@@ -256,6 +266,10 @@ static void pseudo_command(uint8_t command, const uint8_t *data, int len)
         out[0] = eg.devices >> 8;
         out[1] = eg.devices & 0xFF;
         n = 2;
+        break;
+    case 0x1B:      /* one-second ticks: the OS's one-second interrupt */
+        eg.tick_mode = len > 0 ? data[0] : 0;
+        eg.next_tick = mac_now() + MAC_CPU_HZ;
         break;
     case 0x0E:      /* the sound chip's (DFAC) settings */
     case 0x12:      /* interrupt level */
@@ -301,11 +315,11 @@ void egret_lines(bool sys, bool full)
     bool sys_rose = sys && !eg.sys, sys_fell = !sys && eg.sys;
     bool full_rose = full && !eg.full, full_fell = !full && eg.full;
     EGRET_LOG("%llu lines sys %d full %d state %d sr %s\n", (unsigned long long)(mac_now() - mac.frame_start),
-              sys, full, eg.state, via_sr_shifting_out() ? "out" : via_sr_shifting_in() ? "in" : "-");
+              sys, full, eg.state, via_sr_shifting_out(&via1) ? "out" : via_sr_shifting_in(&via1) ? "in" : "-");
     eg.sys = sys;
     eg.full = full;
     if (sys_rose) {
-        if (eg.state == E_ATTENTION && !via_sr_shifting_out()) {
+        if (eg.state == E_ATTENTION && !via_sr_shifting_out(&via1)) {
             /* The Mac takes the packet */
             eg.state = E_SEND;
             act(ACT_GIVE, DELAY);
@@ -320,7 +334,7 @@ void egret_lines(bool sys, bool full)
                 eg.state = E_RECEIVE;
             }
             eg.cmd_len = 0;
-            if (eg.sr_written && via_sr_shifting_out()) {
+            if (eg.sr_written && via_sr_shifting_out(&via1)) {
                 act(ACT_TAKE, DELAY);
             }
         }
@@ -348,7 +362,7 @@ void egret_lines(bool sys, bool full)
      * drops it to ask for the next one (raising it meanwhile to say it got
      * the last)
      */
-    if (full_rose && sys && (eg.state == E_RECEIVE || (eg.state == E_ATTENTION && via_sr_shifting_out()))) {
+    if (full_rose && sys && (eg.state == E_RECEIVE || (eg.state == E_ATTENTION && via_sr_shifting_out(&via1)))) {
         act(ACT_TAKE, DELAY);
     }
     if (full_fell && sys && eg.state == E_SEND) {
@@ -362,9 +376,9 @@ void egret_event(void)
     eg.action = ACT_NONE;
     switch (action) {
     case ACT_TAKE:
-        if (eg.sr_written && via_sr_shifting_out()) {
+        if (eg.sr_written && via_sr_shifting_out(&via1)) {
             eg.sr_written = false;
-            uint8_t b = via_sr_send();
+            uint8_t b = via_sr_send(&via1);
             EGRET_LOG("%llu took %02x\n", (unsigned long long)(mac_now() - mac.frame_start), b);
             if (eg.state == E_RECEIVE && eg.cmd_len < MAX_CMD) {
                 eg.cmd[eg.cmd_len++] = b;
@@ -372,12 +386,12 @@ void egret_event(void)
         }
         break;
     case ACT_ATTENTION:
-        if (!via_sr_shifting_in()) {
+        if (!via_sr_shifting_in(&via1)) {
             act(ACT_ATTENTION, DELAY);      /* the Mac isn't listening yet */
             break;
         }
         EGRET_LOG("%llu attention\n", (unsigned long long)(mac_now() - mac.frame_start));
-        via_sr_receive(0x00);
+        via_sr_receive(&via1, 0x00);
         break;
     case ACT_GIVE:
         if (eg.packet_pos < eg.packet_len) {
@@ -386,21 +400,15 @@ void egret_event(void)
             }
             EGRET_LOG("%llu gave %02x%s\n", (unsigned long long)(mac_now() - mac.frame_start),
                       eg.packet[eg.packet_pos], eg.xcvr ? "" : " (last)");
-            via_sr_receive(eg.packet[eg.packet_pos++]);
+            via_sr_receive(&via1, eg.packet[eg.packet_pos++]);
         }
         break;
     }
 }
 
-void via_sr_written(void)
+void egret_sr_written(void)
 {
     eg.sr_written = true;
-}
-
-void via_acr_changed(uint8_t old_acr, uint8_t acr)
-{
-    (void)old_acr;
-    (void)acr;
 }
 
 bool egret_xcvr_line(void)
@@ -408,10 +416,26 @@ bool egret_xcvr_line(void)
     return !eg.xcvr;
 }
 
-/* Once a frame: autopoll the ADB devices while the bus is quiet */
+/* Once a frame: a one-second tick (packet type 3, which the ROM hands to
+ * the one-second interrupt handler), or autopoll the ADB devices, while
+ * the bus is quiet
+ */
 void egret_frame(void)
 {
-    if (!eg.autopoll || eg.state != E_IDLE || eg.packet_ready || eg.sys) {
+    if (eg.tick_mode && mac.now >= eg.next_tick) {
+        eg.next_tick += MAC_CPU_HZ;
+        eg.tick_due = true;
+    }
+    if (eg.state != E_IDLE || eg.packet_ready || eg.sys) {
+        return;
+    }
+    if (eg.tick_due) {
+        eg.tick_due = false;
+        packet(3, 0, 0, NULL, 0);
+        send_packet();
+        return;
+    }
+    if (!eg.autopoll) {
         return;
     }
     uint8_t command, out[8];

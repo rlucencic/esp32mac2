@@ -6,7 +6,8 @@
 
 /* Machine settings kept in NVS (namespace "mac2") */
 typedef struct {
-    uint16_t ram_mb;        /* 2, 4, 6, 10 */
+    uint8_t model;          /* mac_model_t */
+    uint16_t ram_mb;        /* LC 2, 4, 6, 10; II 2, 4, 8 */
     uint8_t monitor;        /* mac_monitor_t */
 } settings_t;
 
@@ -15,6 +16,8 @@ extern settings_t settings;
 void settings_load(void);
 void settings_save(void);
 
-/* Parameter RAM (MAC_PRAM_SIZE bytes): false if none was saved yet */
-bool settings_load_pram(uint8_t *pram);
-void settings_save_pram(const uint8_t *pram);
+/* The model's parameter RAM (MAC_PRAM_SIZE bytes; the LC's and the II's
+ * are laid out differently): false if none was saved yet
+ */
+bool settings_load_pram(mac_model_t model, uint8_t *pram);
+void settings_save_pram(mac_model_t model, const uint8_t *pram);

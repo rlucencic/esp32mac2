@@ -1,5 +1,5 @@
 /*
- * Macintosh LC emulator on the M5Stack Tab5.
+ * Macintosh LC and II emulator on the M5Stack Tab5.
  *
  * The board side (tasks, LCD, touch, WiFi, Bluetooth, setup screen, web
  * page, console) is the shared runtime in ../esp32emu; this file plugs the
@@ -22,52 +22,69 @@ static const char *TAG = "main";
 
 static mac_config_t s_cfg;
 static uint8_t s_pram[MAC_PRAM_SIZE];
+static int s_pram_model = -1;       /* whose parameter RAM s_pram holds */
 static volatile bool s_pram_dirty;
 static const char *s_rom_name;
+static uint8_t *s_card_rom;
 
 /* ---- Memory ----
  *
- * The CPU core's opcode tables, video RAM, the ROM copy and the Mac's RAM
+ * The CPU core's opcode tables, video RAM, the ROM copies and the Mac's RAM
  * (up to 10 MB in one block), first thing at power-on, before the screen,
  * WiFi and Bluetooth fragment PSRAM. The rest of the board needs ~1.8 MB
  * of it at most (screen buffer, WiFi, Bluetooth, setup screen).
  */
 #define PSRAM_FOR_THE_REST      (1792 * 1024)
 #define MB                      (1024 * 1024)
+#define RAM_CHOICES             4
 
-static const char *const ram_names[] = { "2 MB", "4 MB", "6 MB", "10 MB", "" };
-static const uint16_t ram_sizes[] = { 2, 4, 6, 10 };
-#define RAM_CHOICES 4
+/* The sizes each model takes (LC: the board's 2 MB and a SIMM pair; II:
+ * two banks), and their buttons
+ */
+static const uint16_t ram_sizes[2][RAM_CHOICES] = { { 2, 4, 6, 10 }, { 2, 4, 8, 0 } };
+static const char *const ram_names_lc[] = { "2 MB", "4 MB", "6 MB", "10 MB", "" };
+static const char *const ram_names_ii[] = { "2 MB", "4 MB", "8 MB", "" };
 
 static uint16_t s_ram_limit_mb = 2;
 
+/* The biggest size of the model's at or below the setting (and what fits) */
 static uint32_t ram_wanted(void)
 {
-    uint16_t mb = settings.ram_mb < s_ram_limit_mb ? settings.ram_mb : s_ram_limit_mb;
+    const uint16_t *sizes = ram_sizes[settings.model];
+    uint16_t mb = sizes[0];
+    for (int i = 0; i < RAM_CHOICES && sizes[i]; i++) {
+        if (sizes[i] <= settings.ram_mb && sizes[i] <= s_ram_limit_mb) {
+            mb = sizes[i];
+        }
+    }
     return mb * MB;
+}
+
+static void load_pram(void)
+{
+    if (s_pram_model != settings.model) {
+        s_pram_model = settings.model;
+        if (!settings_load_pram(settings.model, s_pram)) {
+            mac_pram_defaults(s_pram, settings.model);
+        }
+    }
 }
 
 static void reserve_memory(void)
 {
     settings_load();
-    if (!settings_load_pram(s_pram)) {
-        mac_pram_defaults(s_pram, MAC_MODEL_LC);
-    }
+    load_pram();
     s_cfg.opcode_tables = heap_caps_malloc(MAC_OPCODE_TABLES_SIZE, MALLOC_CAP_SPIRAM);
     s_cfg.vram = heap_caps_malloc(MAC_VRAM_SIZE, MALLOC_CAP_SPIRAM);
     s_cfg.rom_copy = heap_caps_malloc(ROM_MAX_SIZE, MALLOC_CAP_SPIRAM);
+    s_card_rom = heap_caps_malloc(MAC_CARD_ROM_SIZE, MALLOC_CAP_SPIRAM);
 
     size_t room = heap_caps_get_largest_free_block(MALLOC_CAP_SPIRAM);
     room = room > PSRAM_FOR_THE_REST ? room - PSRAM_FOR_THE_REST : 0;
-    for (int i = RAM_CHOICES - 1; i >= 0; i--) {
-        if (ram_sizes[i] * MB <= room) {
-            s_ram_limit_mb = ram_sizes[i];
-            break;
-        }
-    }
+    s_ram_limit_mb = room / MB > 10 ? 10 : room / MB;
     uint32_t ram_size = ram_wanted();
     if (ram_size / MB != settings.ram_mb) {
-        ESP_LOGW(TAG, "no room for %u MB of Mac RAM, using %u MB", (unsigned)settings.ram_mb,
+        ESP_LOGW(TAG, "%u MB of Mac RAM wanted, using %u MB", (unsigned)settings.ram_mb,
                  (unsigned)(ram_size / MB));
     }
     s_cfg.ram = heap_caps_malloc(ram_size, MALLOC_CAP_SPIRAM);
@@ -85,7 +102,7 @@ static void every_second(void)
 {
     if (s_pram_dirty) {
         s_pram_dirty = false;
-        settings_save_pram(s_pram);
+        settings_save_pram(s_pram_model, s_pram);
     }
 }
 
@@ -99,11 +116,25 @@ static void disk_ejected(int drive)
 static bool start(void)
 {
     uint32_t rom_size;
-    if (s_cfg.rom_copy == NULL || !rom_store_load(MAC_MODEL_LC, s_cfg.rom_copy, &rom_size, &s_rom_name)) {
-        emu_set_message("No Macintosh LC ROM: put it in roms/lc.rom and flash with idf.py flash, "
-                        "or copy it into the \"roms\" folder on the SD card.");
+    bool ii = settings.model == MAC_MODEL_II;
+    if (s_cfg.rom_copy == NULL || !rom_store_load(settings.model, s_cfg.rom_copy, &rom_size, &s_rom_name)) {
+        emu_set_message(ii ? "No Macintosh II ROM: put it in roms/ii.rom and flash with idf.py flash, "
+                             "or copy it into the \"roms\" folder on the SD card."
+                           : "No Macintosh LC ROM: put it in roms/lc.rom and flash with idf.py flash, "
+                             "or copy it into the \"roms\" folder on the SD card.");
         return false;
     }
+    if (ii && (s_card_rom == NULL || !rom_store_load_card(s_card_rom))) {
+        emu_set_message("No ROM for the Mac II's video card (the Display Card 8*24's, 341-0868): "
+                        "put it in roms/mdc824.rom and flash with idf.py flash, or copy it into the "
+                        "\"roms\" folder on the SD card.");
+        return false;
+    }
+    if (s_pram_dirty) {
+        s_pram_dirty = false;
+        settings_save_pram(s_pram_model, s_pram);
+    }
+    load_pram();
     uint32_t ram_size = ram_wanted();
     if (s_cfg.ram == NULL || s_cfg.ram_size != ram_size) {
         free(s_cfg.ram);
@@ -121,6 +152,8 @@ static bool start(void)
     s_cfg.rom = s_cfg.rom_copy;     /* patched in place */
     s_cfg.rom_size = rom_size;
     s_cfg.monitor = settings.monitor;
+    s_cfg.card_rom = ii ? s_card_rom : NULL;
+    s_cfg.card_rom_size = ii ? MAC_CARD_ROM_SIZE : 0;
     s_cfg.pram = s_pram;
     s_cfg.pram_changed = pram_changed;
     s_cfg.disk_ejected = disk_ejected;
@@ -251,22 +284,41 @@ static void touch(int x, int y, bool pressed)
 
 /* ---- Setup screen choices ---- */
 
+enum { CHOICE_MODEL, CHOICE_MEMORY, CHOICE_MONITOR, CHOICES };
+
+static const char *const model_names[] = { "Mac LC", "Mac II", "" };
 static const char *const monitor_names[] = { "640 x 480", "512 x 384", "" };
 
+static int model_get(void)
+{
+    return settings.model;
+}
+
+static void model_set(int i)
+{
+    if (i == MAC_MODEL_LC || i == MAC_MODEL_II) {
+        settings.model = i;
+        settings_save();
+    }
+}
+
+/* The model's size at or below the setting */
 static int ram_get(void)
 {
-    for (int i = RAM_CHOICES - 1; i > 0; i--) {
-        if (settings.ram_mb >= ram_sizes[i]) {
-            return i;
+    const uint16_t *sizes = ram_sizes[settings.model];
+    int at = 0;
+    for (int i = 0; i < RAM_CHOICES && sizes[i]; i++) {
+        if (sizes[i] <= settings.ram_mb) {
+            at = i;
         }
     }
-    return 0;
+    return at;
 }
 
 static void ram_set(int i)
 {
-    if (i >= 0 && i < RAM_CHOICES) {
-        settings.ram_mb = ram_sizes[i];
+    if (i >= 0 && i < RAM_CHOICES && ram_sizes[settings.model][i]) {
+        settings.ram_mb = ram_sizes[settings.model][i];
         settings_save();
     }
 }
@@ -284,10 +336,20 @@ static void monitor_set(int i)
     }
 }
 
-static const emu_choice_t choices[] = {
-    { "Memory", ram_names, ram_get, ram_set, false },
+static const emu_choice_t choices[CHOICES] = {
+    { "Model", model_names, model_get, model_set, false },
+    { "Memory", ram_names_lc, ram_get, ram_set, false },
     { "Monitor", monitor_names, monitor_get, monitor_set, false },
 };
+
+/* The Memory row's buttons follow the model */
+static const char *const *choice_names(int i)
+{
+    if (i == CHOICE_MEMORY) {
+        return settings.model == MAC_MODEL_II ? ram_names_ii : ram_names_lc;
+    }
+    return NULL;
+}
 
 /* ---- Disks ---- */
 
@@ -344,7 +406,8 @@ static const char *depth_text(int bits)
     case 2:  return "4 colours";
     case 4:  return "16 colours";
     case 8:  return "256 colours";
-    default: return "thousands of colours";
+    case 16: return "thousands of colours";
+    default: return "millions of colours";
     }
 }
 
@@ -352,7 +415,8 @@ static void status(emu_json_t *j, int section)
 {
     char text[160];
     if (section == EMU_STATUS_ROWS) {
-        snprintf(text, sizeof(text), "Macintosh LC, %lu MB", (unsigned long)(s_cfg.ram_size >> 20));
+        snprintf(text, sizeof(text), "Macintosh %s, %lu MB", mac_model() == MAC_MODEL_II ? "II" : "LC",
+                 (unsigned long)(s_cfg.ram_size >> 20));
         emu_json_row(j, "System", text);
         emu_json_row(j, "ROM", s_rom_name ? s_rom_name : "-");
         int w, h;
@@ -392,7 +456,8 @@ static void console_info(char *buf, size_t len)
  *   K <hex> <0|1>      Mac key code down (1) or up (0)
  *   m <dx> <dy> <btn>  move the mouse, button 0/1
  *   P <x> <y> <btn>    pointer at screen position x, y (p is the runtime's profiler)
- *   R <ram MB> [mon]   restart with that RAM (2, 4, 6, 10) and monitor (0 13", 1 12")
+ *   R <model> <MB> [m] restart as model 0 LC, 1 II, with that RAM (LC 2, 4, 6, 10;
+ *                      II 2, 4, 8) and monitor (0 13", 1 12")
  *   n                  the programmer's interrupt switch
  */
 static bool console_command(const char *line)
@@ -425,14 +490,19 @@ static bool console_command(const char *line)
         return true;
     }
     case 'R': {
-        int ram_mb = 0, monitor = settings.monitor;
-        int n = sscanf(line + 1, "%d %d", &ram_mb, &monitor);
-        if (n >= 1 && (ram_mb == 2 || ram_mb == 4 || ram_mb == 6 || ram_mb == 10) &&
-            (monitor == MAC_MONITOR_13 || monitor == MAC_MONITOR_12)) {
-            settings.ram_mb = ram_mb;
-            settings.monitor = monitor;
-            settings_save();
-            emu_restart();
+        int model = 0, ram_mb = 0, monitor = settings.monitor;
+        int n = sscanf(line + 1, "%d %d %d", &model, &ram_mb, &monitor);
+        bool ok = n >= 2 && (model == MAC_MODEL_LC || model == MAC_MODEL_II) &&
+                  (monitor == MAC_MONITOR_13 || monitor == MAC_MONITOR_12);
+        for (int i = 0; ok && i < RAM_CHOICES; i++) {
+            if (ram_sizes[model][i] == ram_mb) {
+                settings.model = model;
+                settings.ram_mb = ram_mb;
+                settings.monitor = monitor;
+                settings_save();
+                emu_restart();
+                break;
+            }
         }
         return true;
     }
@@ -454,9 +524,9 @@ extern const char macfiles_js_end[] asm("_binary_macfiles_js_end");
 #endif
 
 static const emu_machine_t machine = {
-    .name = "Macintosh LC",
+    .name = "Macintosh",
     .short_name = "Mac",
-    .view_width = 800,          /* 640 x 480 (or 512 x 384) at 4:3 */
+    .view_width = 800,          /* 640 x 480 (or 512 x 384) at 4:3: 960 x 720 on the Tab5 */
     .scale = EMU_SCALE_SMOOTH,
     .reserve_memory = reserve_memory,
     .start = start,
@@ -474,7 +544,8 @@ static const emu_machine_t machine = {
     .hid_mouse = hid_mouse,
     .touch = touch,
     .choices = choices,
-    .choice_count = 2,
+    .choice_count = CHOICES,
+    .choice_names = choice_names,
     .disks = &disks,
 #if CONFIG_EMU_WEB
     .web_script = macfiles_js_start,

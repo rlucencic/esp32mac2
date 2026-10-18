@@ -24,6 +24,10 @@ static const patch_t lc_patches[] = {
     { 0x03AB4, 0x6704, 0x4E71 },    /* no FPU: always clear the flag (nop the beq) */
 };
 
+static const patch_t ii_patches[] = {
+    { 0x0370A, 0xB981, 0xB381 },    /* checksum: eor.l d4,d1 -> eor.l d1,d1 */
+};
+
 typedef struct {
     uint32_t checksum;
     uint32_t size;
@@ -37,6 +41,8 @@ typedef struct {
 static const known_rom_t known[] = {
     { 0x350EACF0, 0x80000, "Macintosh LC", MAC_MODEL_LC, 0x6C3E0,
       lc_patches, sizeof(lc_patches) / sizeof(lc_patches[0]) },
+    { 0x9779D2C4, 0x40000, "Macintosh II", MAC_MODEL_II, 0x2D72C,
+      ii_patches, sizeof(ii_patches) / sizeof(ii_patches[0]) },
 };
 
 static uint32_t be32(const uint8_t *p)
@@ -117,5 +123,5 @@ bool rom_prepare(const uint8_t *image, uint32_t size)
         MAC_LOGW("no .Sony driver at $%05lx", (unsigned long)k->sony);
         return false;
     }
-    return sony_install(mac.rom, size, k->sony);
+    return sony_install(mac.rom, size, k->sony, mac.rom_mac_base);
 }

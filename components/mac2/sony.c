@@ -215,7 +215,7 @@ static uint32_t s_driver;           /* driver's Mac address */
 static int s_light = -1;
 static uint8_t s_io[4096];
 
-bool sony_install(uint8_t *rom, uint32_t rom_size, uint32_t offset)
+bool sony_install(uint8_t *rom, uint32_t rom_size, uint32_t offset, uint32_t rom_mac_base)
 {
     uint32_t bytes = sizeof(driver);
     if (offset + bytes + sizeof(hd_icon) + sizeof(hd_where) > rom_size) {
@@ -233,10 +233,10 @@ bool sony_install(uint8_t *rom, uint32_t rom_size, uint32_t offset)
     for (size_t i = 0; i < sizeof(hd_where); i++) {
         rom[(icon + sizeof(hd_icon) + i) ^ 1] = (uint8_t)hd_where[i];
     }
-    s_hd_icon = ROM_BASE + icon;
+    s_hd_icon = rom_mac_base + icon;
     mac.driver_start = offset;
     mac.driver_end = offset + bytes;
-    s_driver = ROM_BASE + offset;
+    s_driver = rom_mac_base + offset;
     return true;
 }
 

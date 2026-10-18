@@ -19,8 +19,6 @@ static struct {
     bool changed;
 } ar;
 
-static uint32_t s_signature = 1;
-
 static uint16_t rgb565(uint8_t r, uint8_t g, uint8_t b)
 {
     return ((r >> 3) << 11) | ((g >> 2) << 5) | (b >> 3);
@@ -93,7 +91,7 @@ void ariel_write(uint32_t address, uint8_t value)
     }
 }
 
-void mac_screen_size(int *width, int *height)
+void lc_screen_size(int *width, int *height)
 {
     if (mac.monitor == MAC_MONITOR_12) {
         *width = 512;
@@ -104,16 +102,16 @@ void mac_screen_size(int *width, int *height)
     }
 }
 
-int mac_screen_depth(void)
+int lc_screen_depth(void)
 {
     int mode = pvia_video_config() & 7;
     return mode <= 4 ? 1 << mode : 1;
 }
 
-void mac_render_line_rgb565(int y, uint16_t *dst)
+void lc_render_line(int y, uint16_t *dst)
 {
     int w, h;
-    mac_screen_size(&w, &h);
+    lc_screen_size(&w, &h);
     if (y < 0 || y >= h || mac.vram == NULL) {
         memset(dst, 0, w * sizeof(uint16_t));
         return;
@@ -126,7 +124,7 @@ void mac_render_line_rgb565(int y, uint16_t *dst)
         uint32_t line = (uint32_t)y * w * 2;
         for (int x = 0; x < w; x++) {
             uint32_t o = line + x * 2;
-            uint16_t p = o < MAC_VRAM_SIZE ? *(const uint16_t *)(vram + o) : 0;
+            uint16_t p = o < mac.vram_size ? *(const uint16_t *)(vram + o) : 0;
             uint16_t g = (p >> 5) & 0x1F;
             *dst++ = ((p >> 10) & 0x1F) << 11 | g << 6 | (g >> 4) << 5 | (p & 0x1F);
         }
@@ -165,12 +163,12 @@ void mac_render_line_rgb565(int y, uint16_t *dst)
     }
 }
 
-uint32_t mac_screen_signature(void)
+bool lc_screen_changed(void)
 {
     if (mac.vram_written || ar.changed) {
         mac.vram_written = false;
         ar.changed = false;
-        s_signature++;
+        return true;
     }
-    return s_signature;
+    return false;
 }

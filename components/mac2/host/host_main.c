@@ -23,6 +23,7 @@
  *   MAC_TRACE=<pc>[:<n>]     disassemble n instructions from when PC is reached
  *   MAC_DIS=<addr>[:<n>]     disassemble n instructions at addr (after loading)
  *   MAC_MONITOR=12           the 12" RGB monitor (512 x 384) instead of the 13"
+ *   MAC_CARD=<file>          the Mac II's video card ROM (the 8*24's, 32 KB)
  *   MAC_IO=1 | <hex mask>    log I/O accesses (all, or the 8 KB blocks in the mask)
  *   MAC_EGRET                log Egret's commands
  *   MAC_WAV=<file>           record the sound (22255 Hz mono WAV)
@@ -336,11 +337,13 @@ int main(int argc, char **argv)
         }
     }
 
+    uint32_t card_size = 0;
     mac_config_t cfg = {
         .ram = malloc(ram_mb << 20),
         .ram_size = ram_mb << 20,
         .vram = malloc(MAC_VRAM_SIZE),
         .monitor = getenv("MAC_MONITOR") && atoi(getenv("MAC_MONITOR")) == 12 ? MAC_MONITOR_12 : MAC_MONITOR_13,
+        .card_rom = getenv("MAC_CARD") ? read_file(getenv("MAC_CARD"), &card_size) : NULL,
         .rom = rom,
         .rom_size = rom_size,
         .rom_copy = malloc(rom_size),
@@ -348,6 +351,7 @@ int main(int argc, char **argv)
         .pram_changed = save_pram,
         .disk_ejected = ejected,
     };
+    cfg.card_rom_size = card_size;
     if (!mac_init(&cfg)) {
         fprintf(stderr, "mac_init failed\n");
         return 1;

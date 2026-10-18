@@ -1,7 +1,7 @@
 <h1 align="center">esp32mac2</h1>
 
 <p align="center">
-  <b>A colour Macintosh LC on an M5Stack Tab5.</b><br>
+  <b>A colour Macintosh LC or Macintosh II on an M5Stack Tab5.</b><br>
   68020, 640×480 in 256 colours, up to 10 MB, System 7.5.5, disk images of any size, Bluetooth keyboard and mouse.
 </p>
 
@@ -13,10 +13,12 @@
   <img alt="MIT licence" src="https://img.shields.io/badge/licence-MIT-green">
 </p>
 
-esp32mac2 turns an M5Stack Tab5 into a Macintosh LC, Apple's first low-cost
-colour Mac: a 68020, the V8 chip's built-in colour video on a 13-inch
-(640×480) or 12-inch (512×384) monitor, ADB keyboard and mouse through the
-Egret microcontroller, and the Apple Sound Chip. A Bluetooth keyboard and
+esp32mac2 turns an M5Stack Tab5 into a colour Mac, chosen on its setup
+screen: the **Macintosh LC**, Apple's first low-cost colour Mac (the V8
+chip's built-in video, Egret, the Apple Sound Chip), or the **Macintosh
+II**, the first colour Mac (a 68881 floating-point unit, two VIAs, NuBus
+with Apple's Display Card 8•24, the original Apple Sound Chip). Both show
+a 13-inch (640×480) or 12-inch (512×384) monitor. A Bluetooth keyboard and
 mouse (or your finger on the screen) work the Mac, and disk images on the
 microSD card go into three drives. A setup screen on the touch panel, and a
 web page on your network, handle everything else.
@@ -26,21 +28,23 @@ It's the colour sibling of [esp32mac](https://github.com/rlucencic/esp32mac)
 boards), and lives next to
 [esp32ste](https://github.com/rlucencic/esp32ste) (Atari STE) and the other
 machines on the shared runtime [esp32emu](https://github.com/rlucencic/esp32emu).
-The Macintosh II is planned as a second profile.
 
 ## Features
 
-**The machine**
-- 68020 at 15.67 MHz ([Musashi](https://github.com/kstenerud/Musashi) core), no FPU (as a stock LC),
-  at about a real LC's speed (its 16-bit path to memory is taken into account), full speed on the Tab5
-- 2, 4, 6 or 10 MB of RAM (the board's 2 MB plus a SIMM pair)
-- Built-in video: 640×480 in black and white, 4, 16 or 256 colours, or
-  512×384 up to thousands of colours; 256 colours by default, the Monitors
-  control panel changes it
-- Egret: ADB keyboard and mouse, the clock (set from the internet),
-  parameter RAM kept across power-offs
-- Apple Sound Chip (the startup chime, system beeps and sound)
-- System 7.5.5, tested on the Tab5 (Mac OS 7.6.1 starts too)
+**The machines**
+- 68020 at 15.67 MHz ([Musashi](https://github.com/kstenerud/Musashi)
+  core), about a real Mac's speed, full speed on the Tab5
+- **Macintosh LC**: 2, 4, 6 or 10 MB; built-in video at 640×480 in black and
+  white up to 256 colours, or 512×384 up to thousands; Egret for the ADB
+  keyboard and mouse, the clock and parameter RAM; no FPU (as a stock LC)
+- **Macintosh II**: 2, 4 or 8 MB; a 68881 FPU; the Macintosh Display Card
+  8•24 in NuBus slot $9, driven by its own ROM (black and white up to 256
+  colours); ADB and the clock through its VIAs
+- 256 colours by default; the Monitors control panel changes it
+- The startup chime, system beeps and sound through the Apple Sound Chip
+- The clock is set from the internet; parameter RAM is kept across power-offs
+- System 7.5.5, tested on the Tab5 on both machines (Mac OS 7.6.1 starts on
+  the LC too)
 
 **Disks**
 - **Three drives** for disk images of any size, through a fast replacement
@@ -72,8 +76,10 @@ RAM would fit. [esp32mac](https://github.com/rlucencic/esp32mac) runs there.
 1. [ESP-IDF](https://github.com/espressif/esp-idf) v5.5 and
    [esp32emu](https://github.com/rlucencic/esp32emu) checked out next to this
    project (`../esp32emu`).
-2. Your own Macintosh LC ROM (512 KB, copyrighted, **not included**) as
-   `roms/lc.rom` (see [roms/README.md](roms/README.md)).
+2. Your own ROMs (copyrighted, **not included**; see
+   [roms/README.md](roms/README.md)): the Macintosh LC's as `roms/lc.rom`,
+   and for the Mac II its ROM as `roms/ii.rom` and the Display Card 8•24's
+   as `roms/mdc824.rom`.
 3. Build and flash:
 
    ```sh
@@ -81,33 +87,42 @@ RAM would fit. [esp32mac](https://github.com/rlucencic/esp32mac) runs there.
    idf.py -B build-tab5 -DIDF_TARGET=esp32p4 -DSDKCONFIG=build-tab5/sdkconfig -p /dev/cu.usbmodem… flash
    ```
 
-   Instead of flashing the ROM, you can copy it into a `roms` folder on the
-   SD card.
+   Instead of flashing the ROMs, you can copy them into a `roms` folder on
+   the SD card.
 4. On the setup screen: WiFi, then drop a system disk image on the web page
-   and insert it into Drive 1, choose the memory and monitor, **Start**.
+   and insert it into Drive 1, choose the model, memory and monitor,
+   **Start**.
 
 ## How it works
 
-- **`components/mac2`**: the LC, platform independent, with a desktop
-  build (`components/mac2/host`) for testing: scripted keyboard and mouse,
+- **`components/mac2`**: the LC and the II, platform independent (one file
+  for each machine's map and wiring, the rest shared), with a desktop build
+  (`components/mac2/host`) for testing: scripted keyboard and mouse,
   screenshots, sound recording, CPU and I/O traces.
-- **`main`**: the Mac on the board: memory, ROM, settings, keyboard map,
+- **`main`**: the Mac on the board: memory, ROMs, settings, keyboard map,
   touch, drives and status.
 - **[esp32emu](https://github.com/rlucencic/esp32emu)**: the board runtime and
-  the CPU core, built as a 68020 here (`CONFIG_M68K_68020`).
+  the CPU core, built as a 68020 here (`CONFIG_M68K_68020`), with its FPU on
+  for the Mac II.
 
-The ROM is patched in memory, every patch checked against the expected
-bytes: no ROM checksum test, no FPU (the ROM's probe needs a bus error the
-CPU core doesn't make), and the `.Sony` floppy driver replaced by esp32mac's
-paravirtual one. Egret is emulated at the level of its packets, with the
-handshake the LC ROM itself uses. `CLAUDE.md` has the details.
+The ROMs are patched in memory, every patch checked against the expected
+bytes: no ROM checksum test, no FPU on the LC (its probe needs a bus error
+the CPU core doesn't make), and the `.Sony` floppy driver replaced by
+esp32mac's paravirtual one. Egret is emulated at the level of its packets,
+with the handshake the LC ROM itself uses. On the Mac II the Display Card
+8•24's own ROM finds the card, sets up its video and drives it, as on the
+real thing. `CLAUDE.md` has the details.
 
 ## Limitations
 
-- New. On the Tab5: System 7.5.5 starts and runs at full speed, in 256
-  colours, and the touch screen works; sound, Bluetooth and the Tab5
-  Keyboard haven't been tried by hand yet.
-- No FPU, SCSI devices, serial ports, AppleTalk, printer or PDS cards.
+- New. On the Tab5, both machines start System 7.5.5 and run it at full
+  speed in 256 colours, and the touch screen works. Sound, Bluetooth and
+  the Tab5 Keyboard haven't been tried by hand yet.
+- No SCSI devices, serial ports, AppleTalk, printer, PDS cards or other
+  NuBus cards; no 68851 PMMU on the II, so no virtual memory there. The LC
+  has no FPU.
+- Millions of colours on the Mac II's card needs 32-bit addressing, which
+  the original II only gets with an extension (MODE32); not tried yet.
 - Disk images are presented through the floppy driver: copy-protected
   originals that talk to the floppy hardware directly don't work.
 
@@ -115,9 +130,10 @@ handshake the LC ROM itself uses. `CLAUDE.md` has the details.
 
 - [Musashi](https://github.com/kstenerud/Musashi) by Karl Stenerud (MIT),
   via Matt Evans' [fork](https://github.com/evansm7/Musashi) for embedded use
-- [MAME](https://www.mamedev.org)'s Mac LC drivers by R. Belmont (V8,
-  pseudo-VIA, Ariel, ASC; hardware tests by Doug Brown), the reference for
-  how the LC's chips behave
+- [MAME](https://www.mamedev.org)'s Mac LC and Mac II drivers by R. Belmont
+  (V8, pseudo-VIA, Ariel, ASC; hardware tests by Doug Brown) and the
+  Display Card 4•8/8•24 by R. Belmont and Vas Crabb, the reference for how
+  these machines' chips behave
 - Linux's `via-cuda.c` and QEMU's Cuda, for the Egret packets
 - [Mini vMac](https://www.gryphel.com/c/minivmac/) and
   [umac](https://github.com/evansm7/umac), via esp32mac
@@ -129,4 +145,4 @@ handshake the LC ROM itself uses. `CLAUDE.md` has the details.
 esp32mac) is under the GNU LGPL 2.1 or later.
 
 Apple, Macintosh and Mac are trademarks of Apple Inc. This project contains
-no Apple code; you need your own ROM image and system software.
+no Apple code; you need your own ROM images and system software.
