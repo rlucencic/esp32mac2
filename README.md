@@ -58,7 +58,7 @@ which also holds the 68020 core.
   busy on the LC, 64% on the II
 - **Macintosh LC**: 2, 4, 6 or 10 MB (the board's 2 MB and a SIMM pair);
   the V8's built-in video at 640×480 in black and white up to 256 colours,
-  or 512×384 up to thousands; Egret for the ADB keyboard and mouse, the
+  or 512×384 up to thousands (32,768); Egret for the ADB keyboard and mouse, the
   clock and parameter RAM; the V8's Apple Sound Chip; no FPU, as a stock LC
 - **Macintosh II**: 2, 4 or 8 MB; a **68881** FPU; two VIAs (ADB, the clock,
   the slot interrupts); the original Apple Sound Chip with its four-voice
@@ -66,7 +66,9 @@ which also holds the 68020 core.
   Card 8•24** in slot $9, found and driven by its own ROM (black and white
   up to 256 colours)
 - A 13-inch (640×480) or 12-inch (512×384) monitor, chosen on the setup
-  screen; 256 colours by default
+  screen, whose buttons say how many colours each one gets on the model
+  (LC: up to 256 or 32,768; II: up to 256 on both); 256 colours by default
+  on both
 - The startup chime, system beeps and sound through the Apple Sound Chip,
   on the Tab5's speaker
 - The clock is set from the internet; each model's parameter RAM (the
@@ -171,8 +173,8 @@ Tab5 is the only target: a build for any other stops with a message.
    happy Mac, then System 7's desktop in 256 colours.
 
 <p align="center">
-  <img src="docs/images/tab5-setup.png" width="70%" alt="The Tab5's setup screen: model Mac LC or Mac II, the Mac II's memory 2, 4 or 8 MB, monitor 640 x 480 or 512 x 384; WiFi, Bluetooth, Disks and Start buttons">
-  <br><sub>The setup screen on the Tab5, with the Mac II, 4 MB and the 12-inch monitor chosen (its status lines left out)</sub>
+  <img src="docs/images/tab5-setup.png" width="70%" alt="The Tab5's setup screen: model Mac LC or Mac II, the Mac LC's memory 2, 4, 6 or 10 MB, monitor 640 x 480 (up to 256 colours) or 512 x 384 (up to 32,768 colours); WiFi, Bluetooth, Disks and Start buttons">
+  <br><sub>The setup screen on the Tab5, with the Mac LC, 4 MB and the 13-inch monitor chosen; under each monitor, its colours on that model (the status lines left out)</sub>
 </p>
 
 ## Using it
@@ -277,8 +279,10 @@ patches, debugging options and the lessons learned along the way.
 - New. On the Tab5, both machines start System 7.5.5 and run it at full
   speed in 256 colours at 640×480; touch, the pointer and the ADB keyboard
   work. Not tried by hand yet: sound on the speaker, a Bluetooth keyboard
-  and mouse, the Tab5 Keyboard; hardly tried: the 12-inch monitor and other
-  colour depths.
+  and mouse, the Tab5 Keyboard. The 12-inch monitor and thousands of
+  colours are checked in the desktop build only: both machines start in
+  256 colours on either monitor, and the LC's ROM takes thousands at
+  512×384 and turns them down at 640×480, as on a real LC.
 - The CPU's pace is an estimate: each 68020 cycle is counted twice, for a
   16-bit path to memory; it hasn't been calibrated against a real LC or II.
 - No SCSI devices, serial ports, AppleTalk, printer, PDS cards or other

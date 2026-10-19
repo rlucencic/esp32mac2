@@ -89,6 +89,11 @@ typedef struct {
  */
 void mac_pram_defaults(uint8_t *pram, mac_model_t model);
 
+/* The video's parameter RAM for this monitor: kept if it is for it (its
+ * depth too), else the monitor's in 256 colours (mac_init does it)
+ */
+void mac_pram_monitor(uint8_t *pram, mac_model_t model, mac_monitor_t monitor);
+
 /* Name of a known ROM ("Macintosh LC", "Macintosh II") and its model; NULL if the image
  * isn't a ROM this emulator knows how to patch
  */

@@ -288,6 +288,15 @@ enum { CHOICE_MODEL, CHOICE_MEMORY, CHOICE_MONITOR, CHOICES };
 
 static const char *const model_names[] = { "Mac LC", "Mac II", "" };
 static const char *const monitor_names[] = { "640 x 480", "512 x 384", "" };
+/* The colours each monitor gets: the LC's 512 KB of VRAM holds 16 bits a
+ * pixel at 512 x 384, 8 at 640 x 480; the II's card 8 at both
+ */
+static const char *const monitor_names_lc[] = {
+    "640 x 480\nup to 256 colours", "512 x 384\nup to 32,768 colours", "",
+};
+static const char *const monitor_names_ii[] = {
+    "640 x 480\nup to 256 colours", "512 x 384\nup to 256 colours", "",
+};
 
 static int model_get(void)
 {
@@ -342,11 +351,14 @@ static const emu_choice_t choices[CHOICES] = {
     { "Monitor", monitor_names, monitor_get, monitor_set, false },
 };
 
-/* The Memory row's buttons follow the model */
+/* The Memory and Monitor rows' buttons follow the model */
 static const char *const *choice_names(int i)
 {
     if (i == CHOICE_MEMORY) {
         return settings.model == MAC_MODEL_II ? ram_names_ii : ram_names_lc;
+    }
+    if (i == CHOICE_MONITOR) {
+        return settings.model == MAC_MODEL_II ? monitor_names_ii : monitor_names_lc;
     }
     return NULL;
 }

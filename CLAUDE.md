@@ -62,7 +62,9 @@ runtime's profiler), `R <model 0|1> <ram MB> [monitor 0|1]` restart as the
 LC (2/4/6/10 MB) or the II (2/4/8 MB) with the 13" or 12" monitor, `n`
 interrupt switch. Touches on the Tab5: the picture is 960x720 at x=160
 (a Mac pixel is 1.5 panel pixels); setup screen Start `t 1065 637`, Model
-`t 440|795 251`.
+`t 440|795 251`. The Memory and Monitor rows follow the model
+(`choice_names()`); the Monitor buttons' second line is the colours each
+monitor gets: LC up to 256 at 640x480, 32,768 at 512x384; II 256 at both.
 
 ## Layout
 
@@ -242,6 +244,14 @@ The Mac II (`ii.c`, `jmfb.c`, `adb_via.c`, `rtc.c`):
   and $FF at $4C, without which the ROM reset the mode). The defaults ask
   for 256 colours. Millions of colours ($84) needs 32-bit addressing (the
   packed view is over 1 MB): the ROM refused it in 24-bit mode.
+- **The ROM keeps that PRAM only while it matches the monitor**: with the
+  12" monitor and the 13" values (LC sense $5A = 6, II $49/$4A = $A6), it
+  reset the mode to $80, and the 12" monitor came up in black and white.
+  `mac_pram_monitor()` (`egret.c`, from every `mac_init()`) writes the
+  monitor's own values when they don't match: LC $A2 and sense 2, II $A2
+  $A2. A depth the ROM can't give is reset to $80 the same way (how the
+  setup screen's colour counts were checked: $84 = 16 bits kept on the LC
+  at 512x384, reset at 640x480 and on the II at both).
 
 ## Testing
 
@@ -270,8 +280,13 @@ The Mac II (`ii.c`, `jmfb.c`, `adb_via.c`, `rtc.c`):
   ~64%. A double tap (`t` touches) opens a disk, `P x y 0` moves the
   pointer, Return (`k 24`) closes a dialog (both models' ADB), the II's
   menu bar clock shows the time. Not checked by ear or hand yet: sound,
-  Bluetooth, the Tab5 Keyboard; not tried: the 12" monitor, other colour
-  depths through the Monitors control panel.
+  Bluetooth, the Tab5 Keyboard; not tried on the board: the 12" monitor,
+  other colour depths through the Monitors control panel.
+- Checked on the host (2026-10-18): the 12" monitor starts in 256 colours
+  on both models (before the PRAM fix: black and white); the LC at 512x384
+  in thousands (PRAM $58 = $84) draws its colours right.
+- Checked on the Tab5 (2026-10-18): the setup screen's two-line Monitor
+  buttons for the LC and the II (`docs/images/tab5-setup.png`).
 
 ## Open items
 

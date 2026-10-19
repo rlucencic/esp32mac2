@@ -126,27 +126,44 @@ void mac_pram_defaults(uint8_t *pram, mac_model_t model)
     pram[0x0F] = 'c';
     pram[0x01] = 0x80;
     pram[0x02] = 0x4F;
-    /* The video's slot PRAM as the ROM writes it, but in 256 colours ($83;
-     * $80 is black and white): the LC's built-in video (board $0029, the
-     * 13" monitor's sense 6 at $5A), the II's 8*24 card in slot $9 (board
-     * $0027). The ROM keeps it while the board (and monitor) match.
-     */
-    if (model == MAC_MODEL_LC) {
-        pram[0x57] = 0x29;
-        pram[0x58] = 0x83;
-        pram[0x59] = 0xA6;
-        pram[0x5A] = 0x06;
-    } else {
-        pram[0x47] = 0x27;
-        pram[0x48] = 0x83;
-        pram[0x49] = 0xA6;
-        pram[0x4A] = 0xA6;
-        pram[0x4C] = 0xFF;
-    }
+    mac_pram_monitor(pram, model, MAC_MONITOR_13);
     pram[0x78] = 0x00;                  /* startup disk: none chosen */
     pram[0x79] = 0x01;
     pram[0x7A] = 0xFF;
     pram[0x7B] = 0xFE;
+}
+
+/* The video's slot PRAM, as the ROM writes it for the monitor but in 256
+ * colours ($83; $80 is black and white): the LC's built-in video (board
+ * $0029, the monitor's sense at $5A: 6 the 13", 2 the 12"), the II's 8*24
+ * card in slot $9 (board $0027, $A6 or $A2 at $49-$4A). The ROM keeps it
+ * while the board and the monitor match; for another monitor it would
+ * start in black and white: then this one's entry, in colour.
+ */
+void mac_pram_monitor(uint8_t *pram, mac_model_t model, mac_monitor_t monitor)
+{
+    bool m12 = monitor == MAC_MONITOR_12;
+    if (model == MAC_MODEL_LC) {
+        uint8_t sense = m12 ? 0x02 : 0x06;
+        if (pram[0x57] != 0x29 || pram[0x5A] != sense) {
+            pram[0x56] = 0x00;
+            pram[0x57] = 0x29;
+            pram[0x58] = 0x83;
+            pram[0x59] = m12 ? 0xA2 : 0xA6;
+            pram[0x5A] = sense;
+        }
+    } else {
+        uint8_t id = m12 ? 0xA2 : 0xA6;
+        if (pram[0x47] != 0x27 || pram[0x4A] != id) {
+            pram[0x46] = 0x00;
+            pram[0x47] = 0x27;
+            pram[0x48] = 0x83;
+            pram[0x49] = id;
+            pram[0x4A] = id;
+            pram[0x4B] = 0x00;
+            pram[0x4C] = 0xFF;
+        }
+    }
 }
 
 static void pram_write(uint8_t address, uint8_t value)
