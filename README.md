@@ -15,6 +15,11 @@
 </p>
 
 <p align="center">
+  <b>Work in progress:</b> not everything has been tested, and games and demos may or may not
+  work satisfactorily.
+</p>
+
+<p align="center">
   <img alt="The Macintosh LC with System 7.5.5: About This Macintosh, total memory 4,096K, largest unused block 2,210K" src="docs/images/lc-about.png" width="49%">
   <img alt="The Macintosh LC: Jigsaw Puzzle's world map in 256 colours" src="docs/images/lc-jigsaw.png" width="49%">
   <br>
