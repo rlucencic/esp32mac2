@@ -45,10 +45,12 @@ and LC III), next to [esp32ste](https://github.com/rlucencic/esp32ste)
 CPC), [esp32zx](https://github.com/rlucencic/esp32zx) (ZX Spectrum),
 [esp32cbm](https://github.com/rlucencic/esp32cbm) (Commodore 64 and 128),
 [esp32xl](https://github.com/rlucencic/esp32xl) (Atari 800XL and 130XE),
-[esp32msx](https://github.com/rlucencic/esp32msx) (MSX1 and MSX2) and
-[esp32gs](https://github.com/rlucencic/esp32gs) (Apple IIGS); all are built
-on the shared runtime [esp32emu](https://github.com/rlucencic/esp32emu),
-which also holds the 68020 core.
+[esp32msx](https://github.com/rlucencic/esp32msx) (MSX1 and MSX2),
+[esp32gs](https://github.com/rlucencic/esp32gs) (Apple IIGS) and
+[esp32coco](https://github.com/rlucencic/esp32coco) (Tandy Color Computer 2
+and 3); all are built on the shared runtime
+[esp32emu](https://github.com/rlucencic/esp32emu), which also holds the
+68020 core.
 
 ## Features
 
