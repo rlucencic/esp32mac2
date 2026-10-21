@@ -287,9 +287,19 @@ The Mac II (`ii.c`, `jmfb.c`, `adb_via.c`, `rtc.c`):
   in thousands (PRAM $58 = $84) draws its colours right.
 - Checked on the Tab5 (2026-10-18): the setup screen's two-line Monitor
   buttons for the LC and the II (`docs/images/tab5-setup.png`).
+- **Free disk space** (web page): each drive's HFS/MFS/HFS+ volume
+  (`mac_disk_space()`, esp32emu's `diskspace`), counted in `sony_frame()`
+  at insert and a second after the last write. Tab5 (2026-10-21):
+  a 50 MB System 7.5.5 disk 32219136 of 52412416. A read-only `.dmg` (UDRO)
+  shows none: its data fork holds only the non-zero chunks (it's taken as
+  a disk anyway: open item).
 
 ## Open items
 
+- A read-only `.dmg` (UDRO, `hdiutil convert -format UDRO`) is taken as
+  an uncompressed one, but its data fork leaves out the runs of zeros (a
+  10 MB volume in 1 MB): the Mac gets a short, wrong disk. Refuse it, or
+  expand it like the compressed kinds (found 2026-10-21).
 - The II's other ROMs (v1 97851DB6, FDHD 97221136) aren't in the table yet.
 - Millions of colours on the 8•24 (32-bit addressing, MODE32) untried.
 - Sound volume (DFAC via Egret $0E, the ASC's volume register) is ignored;
@@ -298,7 +308,6 @@ The Mac II (`ii.c`, `jmfb.c`, `adb_via.c`, `rtc.c`):
   PDS or other NuBus cards, no 68851 PMMU.
 - `CPU_SCALE` is a guess for both models; a Speedometer run against real
   LC and II figures would settle it.
-
 ## Working with the user
 
 - Expects changes built, flashed and checked on the board, then a short
