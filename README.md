@@ -2,7 +2,7 @@
 
 <p align="center">
   <b>A colour Macintosh LC or Macintosh II on an M5Stack Tab5.</b><br>
-  68020 (and the II's 68881), 640×480 in 256 colours, up to 10 MB, System 7.5.5, disk images of any size in three drives, Bluetooth keyboard and mouse, the touch screen as the mouse.
+  68020 (and the II's 68881), 640×480 in 256 colours, up to 10 MB, System 7.5.5, disk images of any size in three drives, Bluetooth keyboard and mouse, the touch screen as a touchpad.
 </p>
 
 <p align="center">
@@ -103,12 +103,15 @@ all are built on the shared runtime
   the Mac frees the drive
 
 **Around it**
-- **Touch screen as mouse**: the pointer goes where you touch, and a touch
-  clicks; tap twice to open
 - **Setup screen** before the Mac starts, and any time while it runs (hold the
   top-right corner for 2 seconds): WiFi, Bluetooth pairing, model, memory,
   monitor, disks, reset
 - **Bluetooth keyboard and mouse** (BLE HID), with battery levels
+- **The touch screen as a touchpad**, for when there's no mouse at hand
+  (a Bluetooth mouse is the better way): drag a finger anywhere to move
+  the pointer, tap to click where it points, tap twice to open, tap and
+  touch again to drag, hold still half a second to hold the button down
+  (the menus)
 - **Web page** at `http://macintosh2.local`: drop disk images, Mac archives or
   `.ZIP` files onto it (with a progress bar), put them into drives, eject,
   make blank disks, and watch the Mac (with its free memory), drives, board
@@ -129,7 +132,7 @@ An [M5Stack Tab5](https://docs.m5stack.com/en/core/Tab5):
 | Chip | ESP32-P4 (RISC-V, 360 MHz): 16 MB flash, 32 MB PSRAM; an ESP32-C6 for WiFi and Bluetooth |
 | Screen | 5" 1280×720 MIPI-DSI, capacitive touch, held landscape |
 | Storage | microSD card (FAT32 or exFAT) |
-| Input | any BLE keyboard and mouse, the touch screen, or the Tab5 Keyboard |
+| Input | any BLE keyboard and mouse, or the Tab5 Keyboard; the touch screen as a touchpad |
 | Sound | the built-in speaker (ES8388) |
 
 The Mac's picture is shown at 4:3, 960×720 in the middle of the panel,
@@ -178,7 +181,7 @@ Tab5 is the only target: a build for any other stops with a message.
 2. Open `http://macintosh2.local` and drop a system disk image onto the
    page, then choose **Insert into… → Drive 1**.
 3. Tap **Bluetooth** to pair a keyboard and mouse (optional: the touch
-   screen is a mouse too).
+   screen is a touchpad too).
 4. Choose the **model**, **memory** and **monitor**, then tap **Start**: the
    happy Mac, then System 7's desktop in 256 colours.
 
@@ -193,7 +196,7 @@ Tab5 is the only target: a build for any other stops with a message.
 |---|---|
 | Get back to the setup screen | Hold the top-right corner of the screen for 2 s |
 | Change the model, memory or monitor | On the setup screen; **Restart** applies it |
-| Click | Tap the screen, or use the Bluetooth mouse (any button) |
+| Move the pointer, click | The Bluetooth mouse (any button), or the touch screen as a touchpad: drag a finger anywhere to move the pointer, tap to click, tap and touch again to drag, hold still for half a second to hold the button down (the menus) |
 | Insert a disk | Web page: **Insert into…**, or setup screen → **Disks** |
 | Eject a disk | Drag it to the Trash on the Mac (frees the drive), or **Eject** on the web page |
 | Make a blank disk | Web page: **New blank disk** (choose the size), or setup screen → **Disks** → **New** (800 KB) |
@@ -232,7 +235,7 @@ flowchart LR
     PRES[Presenter<br>640×480 → 960×720]
     UI[Setup screen<br>LVGL]
     NET[WiFi · web page · mDNS]
-    BLE[Bluetooth HID · touch]
+    BLE[Bluetooth HID · touchpad]
   end
   PSRAM[(PSRAM<br>Mac RAM · ROMs · VRAM · picture)]
   SD[(microSD<br>disks/)]
@@ -249,7 +252,7 @@ flowchart LR
   builds on a desktop (`components/mac2/host`) for testing with scripted
   keyboard and mouse, screenshots, sound recording, CPU and I/O traces.
 - **`main`**: the Mac on the board: memory, ROMs, settings, keyboard map,
-  touch, drives and status.
+  mouse and touchpad, drives and status.
 - **[esp32emu](https://github.com/rlucencic/esp32emu)**: the board runtime and
   the CPU core, built as a 68020 here (`CONFIG_M68K_68020`), with its FPU on
   for the Mac II (the 68881's transcendental functions through the C library).
@@ -287,7 +290,7 @@ patches, debugging options and the lessons learned along the way.
 ## Limitations
 
 - New. On the Tab5, both machines start System 7.5.5 and run it at full
-  speed in 256 colours at 640×480; touch, the pointer and the ADB keyboard
+  speed in 256 colours at 640×480; the pointer and the ADB keyboard
   work. Not tried by hand yet: sound on the speaker, a Bluetooth keyboard
   and mouse, the Tab5 Keyboard. The 12-inch monitor and thousands of
   colours are checked in the desktop build only: both machines start in

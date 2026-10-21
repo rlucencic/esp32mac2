@@ -10,7 +10,7 @@ Colour Macs with a 68020 at 15.67 MHz, chosen on the setup screen:
   slot $9 (its own ROM drives it), the 24-bit address translation, 2 to 8 MB.
 
 Both run System 7.5.5. Bluetooth keyboard and mouse, the touch screen as a
-mouse, disk images of any size in three drives, an LVGL setup screen and a
+touchpad, disk images of any size in three drives, an LVGL setup screen and a
 web page. ESP-IDF v5.5.4, C.
 
 The sibling of `../esp32mac` (Plus, SE, Classic: 68000, black and white),
@@ -70,7 +70,7 @@ monitor gets: LC up to 256 at 640x480, 32,768 at 512x384; II 256 at both.
 
 | Path | What |
 |---|---|
-| `main/main.c` | The Mac as an `emu_machine_t`: memory, start, key map, touch, drives, status, console |
+| `main/main.c` | The Mac as an `emu_machine_t`: memory, start, key map, mouse and touchpad (a count a pixel), drives, status, console |
 | `main/rom_store.c` | ROMs from their flash partitions, else matching files in the SD card's `roms/` |
 | `main/settings.c` | NVS `mac2` |
 | `main/web/macfiles.js` | From `../esp32mac` (LGPL): Mac archives -> HFS disk images in the browser |
@@ -300,6 +300,9 @@ The Mac II (`ii.c`, `jmfb.c`, `adb_via.c`, `rtc.c`):
   to the raw (UDTO) image byte for byte, the free space the same; UDZO
   refused ("a compressed .dmg: hdiutil convert -format UDRO"). A UDRO
   used to be taken as its data fork, the zeros left out: a wrong disk.
+- **Touchpad** (Tab5, 2026-10-21, the LC, System 7.5.5): slow drags of 150
+  panel pixels move the pointer 104 across and 97 down (ADB with the Mac's
+  acceleration); a tap on OK closed the not-shut-down dialog.
 
 ## Open items
 
@@ -311,6 +314,13 @@ The Mac II (`ii.c`, `jmfb.c`, `adb_via.c`, `rtc.c`):
   PDS or other NuBus cards, no 68851 PMMU.
 - `CPU_SCALE` is a guess for both models; a Speedometer run against real
   LC and II figures would settle it.
+- **Clock** (the clock audit, 2026-10-21: `../esp32emu/CLAUDE.md`, To do):
+  Egret's and the II's RTC are the board's time plus an offset the Mac sets
+  (not saved): a clock set before the board's time is right is shifted by
+  its next step. The Mac reads the clock at boot and then counts its
+  one-second interrupt in emulated time (`ii.c`): it misses a later step and
+  falls behind below real time.
+
 ## Working with the user
 
 - Expects changes built, flashed and checked on the board, then a short
