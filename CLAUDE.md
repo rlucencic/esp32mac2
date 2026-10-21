@@ -109,8 +109,11 @@ Shared:
   audio task. `chips.c`: SCC, SWIM/IWM, SCSI 5380 stubs from `../esp32mac`.
 - `sony.c`: `../esp32mac`'s paravirtual disk driver over the ROM's `.Sony`
   (LC $6C3E0, II $2D72C), at the ROM's 24-bit address. Also takes
-  uncompressed `.dmg` (UDIF: the data fork is the disk, found from the
-  "koly" trailer); `.dmg` and CD images are locked. Empty drives answering
+  uncompressed `.dmg` (UDIF, found from the "koly" trailer: the disk is
+  the data fork's chunks as the XML plist's "blkx" tables list them, raw
+  or zeros, so a read-only UDRO that leaves out the zeros works; without
+  tables the data fork in one piece; compressed ones are refused);
+  `.dmg` and CD images are locked. Empty drives answering
   "offline" aren't logged (the ROM polls them).
 - `rom.c`: the known ROMs (LC 350EACF0, II 9779D2C4) and their patches.
 
@@ -290,16 +293,16 @@ The Mac II (`ii.c`, `jmfb.c`, `adb_via.c`, `rtc.c`):
 - **Free disk space** (web page): each drive's HFS/MFS/HFS+ volume
   (`mac_disk_space()`, esp32emu's `diskspace`), counted in `sony_frame()`
   at insert and a second after the last write. Tab5 (2026-10-21):
-  a 50 MB System 7.5.5 disk 32219136 of 52412416. A read-only `.dmg` (UDRO)
-  shows none: its data fork holds only the non-zero chunks (it's taken as
-  a disk anyway: open item).
+  a 50 MB System 7.5.5 disk 32219136 of 52412416.
+- **`.dmg` chunks** (2026-10-21): `hdiutil` images of an HFS+ volume with
+  files, bare and behind an Apple partition map, read through
+  `MAC_DUMP=1:<file>` (the disk as the Mac sees it): UDRO and UDRW equal
+  to the raw (UDTO) image byte for byte, the free space the same; UDZO
+  refused ("a compressed .dmg: hdiutil convert -format UDRO"). A UDRO
+  used to be taken as its data fork, the zeros left out: a wrong disk.
 
 ## Open items
 
-- A read-only `.dmg` (UDRO, `hdiutil convert -format UDRO`) is taken as
-  an uncompressed one, but its data fork leaves out the runs of zeros (a
-  10 MB volume in 1 MB): the Mac gets a short, wrong disk. Refuse it, or
-  expand it like the compressed kinds (found 2026-10-21).
 - The II's other ROMs (v1 97851DB6, FDHD 97221136) aren't in the table yet.
 - Millions of colours on the 8•24 (32-bit addressing, MODE32) untried.
 - Sound volume (DFAC via Egret $0E, the ASC's volume register) is ignored;
