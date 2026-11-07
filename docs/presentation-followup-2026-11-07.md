@@ -137,3 +137,12 @@ The subsequent [shared half-weight row trial](../../esp32emu/docs/rgb565-half-bl
 retains a separate averaging loop for uniform vertical weight 16. Its P4
 kernel and full-firmware measurements are separate from this diagnostic
 study; they include a small CPU-throughput tradeoff and no panel-FPS claim.
+
+The later [exact 3:2 horizontal-scaling trial](../../esp32emu/docs/rgb565-3to2-experiment-2026-11-07.md)
+rejects a geometry-selected row-function integration. Its isolated P4
+kernel is faster and full LCD pixels match, but repeated CPU-frame
+throughput falls 1.56% at 3:2 and 1.27% in a non-3:2 fallback control.
+The shared runtime is restored to `784bba1`; only documentation is retained.
+These measurements retain the same counter limitations as this
+investigation. Direct conditional dispatch preserving the old general
+loop, LC conversion and real-software tests remain candidates.
