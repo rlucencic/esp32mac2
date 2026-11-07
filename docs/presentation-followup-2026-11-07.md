@@ -43,7 +43,7 @@ boundaries can split a pass, so these are interval estimates. They are not
 counts of distinct pixels, output rows, completed panel frames or atomic
 guest-frame snapshots. Elapsed render time includes interrupts and timer
 instrumentation overhead. Separate three-capture core-0 PC profiles use
-32,000 samples each at 25 microseconds and the exact flashed ELF.
+32,000 samples each at 20 kHz (50 microseconds) and the exact flashed ELF.
 
 A paced guest variant inserts NOPs between writes. It keeps the same
 writes, colors and addresses, while reducing writes per wall-clock second.

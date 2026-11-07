@@ -76,7 +76,7 @@ mode register $1A. Five 65,536-longword blocks write through the packed
 view, covering the visible frame. Guest interrupts are masked.
 
 Freshly flash each build, boot the ROM, inject identical code and initial
-registers, then collect three 32,000-sample core-0 captures at 25 microseconds.
+registers, then collect three 32,000-sample core-0 captures at 20 kHz (50 microseconds).
 Resolve each capture against the exact flashed ELF. Both hardware builds
 use the same isolated `mac2vidtest` disk-selection namespace; original disk
 images are never mounted. The temporary namespace change is not retained

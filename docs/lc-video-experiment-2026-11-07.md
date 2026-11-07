@@ -91,7 +91,7 @@ and masked interrupts: 8-bit output at 640×480, RGB555 at 512×384.
 Read frame and screen-signature counters at three host-monotonic timestamps
 about 30 seconds apart. No PC profiling or debugger connection is active
 in those windows. Afterward, take three separate 32,000-sample core-0
-profiles at 25 microseconds, resolved against the exact flashed ELF.
+profiles at 20 kHz (50 microseconds), resolved against the exact flashed ELF.
 
 8-bit profiler-free results:
 

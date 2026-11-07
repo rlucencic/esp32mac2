@@ -103,7 +103,7 @@ not full-emulator FPS improvements.
 After the kernel benchmark, flash a fresh reference, boot the II with 4 MB
 and no disks, inject each workload, and collect three consecutive core-0
 captures per depth. Repeat after a fresh candidate flash with the same
-settings and guest code. Each capture uses 32,000 samples at 25 microseconds.
+settings and guest code. Each capture uses 32,000 samples at 20 kHz (50 microseconds).
 
 | Workload / build | Converter samples, three captures | Shared presenter | Idle |
 | --- | --- | --- | --- |

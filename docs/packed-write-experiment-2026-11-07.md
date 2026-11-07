@@ -67,7 +67,7 @@ periodic PC sampling. Throughput uses host monotonic receipt times; screen
 signature increments are a presentation-change proxy, not panel FPS.
 Resolve subsequent core-1 profiles against the exact flashed ELF.
 
-Three 32,000-sample core-1 profiles at 25 microseconds show:
+Three 32,000-sample core-1 profiles at 20 kHz (50 microseconds) show:
 
 | Symbol | Reference sample share | Candidate sample share |
 | --- | ---: | ---: |
