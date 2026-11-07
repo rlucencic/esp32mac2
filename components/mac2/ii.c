@@ -253,9 +253,14 @@ static void write16(uint32_t a, uint16_t v)
 static void write32(uint32_t a, uint32_t v)
 {
     uint32_t o;
-    if (decode(a, &o) == R_SLOT && slot_register(o)) {
-        jmfb_write(o & 0xFFFFFF, v);
-        return;
+    if (decode(a, &o) == R_SLOT) {
+        if (slot_register(o)) {
+            jmfb_write(o & 0xFFFFFF, v);
+            return;
+        }
+        if ((o >> 24) == 9 && jmfb_write_packed32(o & 0xFFFFFF, v)) {
+            return;
+        }
     }
     write16(a, v >> 16);
     write16((a + 2) & mac.addr_mask, v & 0xFFFF);

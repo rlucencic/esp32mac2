@@ -267,6 +267,7 @@ uint32_t jmfb_read(uint32_t offset);        /* registers, 32 bits (offset & ~3) 
 void jmfb_write(uint32_t offset, uint32_t value);
 uint8_t jmfb_read8(uint32_t offset);        /* anything in the slot's space */
 void jmfb_write8(uint32_t offset, uint8_t value);
+bool jmfb_write_packed32(uint32_t offset, uint32_t value); /* false: use byte path */
 void jmfb_vbl(void);
 void jmfb_screen_size(int *w, int *h);
 int jmfb_screen_depth(void);

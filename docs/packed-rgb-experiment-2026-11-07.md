@@ -142,3 +142,7 @@ The board is back at the II's normal 640×480 disk-wait screen, visually
 checked without HALT. It retains the isolated candidate test build, with
 no guest disk mounted. The production configuration remains unchanged
 and builds with the normal disk-selection namespace.
+
+The next [packed-longword write experiment](packed-write-experiment-2026-11-07.md)
+removes repeated address decoding on the guest CPU side; its measurements
+use this paired-renderer commit as the reference.

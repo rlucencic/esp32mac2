@@ -269,6 +269,28 @@ void jmfb_write8(uint32_t offset, uint8_t value)
     }
 }
 
+/* Aligned CPU longword: the high byte is an unused lane, then R, G, B. */
+bool jmfb_write_packed32(uint32_t offset, uint32_t value)
+{
+    if (!ctrl_rgb() || offset >= 0x200000 || (offset & 3)) {
+        return false;
+    }
+    uint32_t at = (offset / 4) * 3;
+    if (at + 2 < VRAM_SIZE) {
+        mac.vram[at ^ 1] = value >> 16;
+        mac.vram[(at + 1) ^ 1] = value >> 8;
+        mac.vram[(at + 2) ^ 1] = value;
+        mac.vram_written = true;
+    } else if (at < VRAM_SIZE) {
+        mac.vram[at ^ 1] = value >> 16;
+        if (at + 1 < VRAM_SIZE) {
+            mac.vram[(at + 1) ^ 1] = value >> 8;
+        }
+        mac.vram_written = true;
+    }
+    return true;
+}
+
 void jmfb_vbl(void)
 {
     if (!jm.vbl_disable) {
