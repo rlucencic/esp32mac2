@@ -314,45 +314,49 @@ void jmfb_render_line(int y, uint16_t *dst)
     uint32_t base = jm.base << ((direct ? 6 : 5) + (ctrl_convolution() ? 1 : 0));
     uint32_t stride = jm.stride << (direct ? 3 : 2);
     uint32_t line = base + (uint32_t)y * stride;
-    for (int x = 0; x < w;) {
-        uint32_t o;
-        switch (jm.ramdac_mode) {
-        case 0x0: {
-            o = line + x / 8;
+    switch (jm.ramdac_mode) {
+    case 0x0:
+        for (int x = 0; x < w;) {
+            uint32_t o = line + x / 8;
             uint8_t b = o < VRAM_SIZE ? vram[o ^ 1] : 0;
             for (int i = 7; i >= 0; i--) {
                 dst[x++] = pens[(b >> i) & 1];
             }
-            break;
         }
-        case 0x4: {
-            o = line + x / 4;
+        break;
+    case 0x4:
+        for (int x = 0; x < w;) {
+            uint32_t o = line + x / 4;
             uint8_t b = o < VRAM_SIZE ? vram[o ^ 1] : 0;
             for (int i = 6; i >= 0; i -= 2) {
                 dst[x++] = pens[(b >> i) & 3];
             }
-            break;
         }
-        case 0x8: {
-            o = line + x / 2;
+        break;
+    case 0x8:
+        for (int x = 0; x < w;) {
+            uint32_t o = line + x / 2;
             uint8_t b = o < VRAM_SIZE ? vram[o ^ 1] : 0;
             dst[x++] = pens[b >> 4];
             dst[x++] = pens[b & 0x0F];
-            break;
         }
-        case 0xC:
-            o = line + x;
-            dst[x++] = pens[o < VRAM_SIZE ? vram[o ^ 1] : 0];
-            break;
-        default:
-            o = line + x * 3;
+        break;
+    case 0xC:
+        for (int x = 0; x < w; x++) {
+            uint32_t o = line + x;
+            dst[x] = pens[o < VRAM_SIZE ? vram[o ^ 1] : 0];
+        }
+        break;
+    default:
+        for (int x = 0; x < w; x++) {
+            uint32_t o = line + x * 3;
             if (o + 2 < VRAM_SIZE) {
-                dst[x++] = rgb565(vram[o ^ 1], vram[(o + 1) ^ 1], vram[(o + 2) ^ 1]);
+                dst[x] = rgb565(vram[o ^ 1], vram[(o + 1) ^ 1], vram[(o + 2) ^ 1]);
             } else {
-                dst[x++] = 0;
+                dst[x] = 0;
             }
-            break;
         }
+        break;
     }
 }
 
