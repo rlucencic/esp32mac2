@@ -157,3 +157,13 @@ retains three native word reads per two RGB pixels, cutting isolated P4
 24-bit conversion cost a further 40.108% relative to this retained build.
 Full-firmware converter residency falls from 36.3–36.8% to 26.7–27.8%.
 The guest's slow packed-write path remains a separate target.
+
+The [LC converter follow-up](lc-video-experiment-2026-11-07.md) retains
+paired native-word reads at 8 bits and a whole-row RGB555 fast path with
+the original partial-row fallback. Isolated P4 conversion costs fall
+23.1–23.3% at 8 bits and 37.3–39.2% at RGB555, with controls within 0.13%.
+All 317,280 native row/canary comparisons per candidate, four LC/II ROM-boot
+pixel comparisons, full LCD captures and P4 test/production builds pass.
+Full-firmware signature observations rise 7.05%/6.28%, with CPU-frame
+throughput −0.18%/−0.33%; these are not panel-FPS or application gains.
+Cost: 68 text bytes, no table or allocation. Next profile Mac3 separately.

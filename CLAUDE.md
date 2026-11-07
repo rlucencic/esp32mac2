@@ -304,10 +304,26 @@ The Mac II (`ii.c`, `jmfb.c`, `adb_via.c`, `rtc.c`):
   panel pixels move the pointer 104 across and 97 down (ADB with the Mac's
   acceleration); a tap on OK closed the not-shut-down dialog.
 
+- **Video optimization checks** (Tab5, 2026-11-07): retained paired
+  indexed reads and a complete-row RGB555 fast path; partial rows retain
+  the old bounds behavior. All 317,280 ASan/UBSan row/canary cases per
+  candidate, four native LC/II ROM-boot pixel comparisons, full LCD-buffer
+  comparisons and P4 test/production builds pass. Isolated converter cost
+  falls 23% at 8 bits and 37–39% at RGB555. Full-firmware dirty-screen
+  observations rise 6–7%, with CPU-frame throughput 0.18–0.33% lower;
+  neither measures panel FPS or application speed. See
+  `docs/lc-video-experiment-2026-11-07.md` and the earlier II trials linked
+  from `docs/presentation-followup-2026-11-07.md`. Original guest disks
+  were not mounted. Next profile Mac3 separately, preserving Sonora's
+  packed strides and whole-row bounds/blanking. Real-software tests on
+  copied disks, physical input and audio-by-ear coverage remain open.
+
 ## Open items
 
 - The II's other ROMs (v1 97851DB6, FDHD 97221136) aren't in the table yet.
-- Millions of colours on the 8•24 (32-bit addressing, MODE32) untried.
+- Millions of colours on the 8•24: the packed RGB memory/rendering path
+  is checked with injected 32-bit guest code; the MODE32 extension and
+  full OS/application workflow remain untried.
 - Sound volume (DFAC via Egret $0E, the ASC's volume register) is ignored;
   the V8 ignores FIFO B (as the real one).
 - No SCSI devices, serial ports, floppy hardware (disk images instead), no

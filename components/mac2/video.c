@@ -122,6 +122,15 @@ void lc_render_line(int y, uint16_t *dst)
     if (mode == 4) {
         /* 16 bits: x RRRRR GGGGG BBBBB, not through the colour table */
         uint32_t line = (uint32_t)y * w * 2;
+        /* Complete rows inside VRAM need no per-pixel bounds checks. */
+        if (line + (uint32_t)w * 2 <= mac.vram_size) {
+            const uint16_t *src = (const uint16_t *)(vram + line);
+            for (int x = 0; x < w; x++) {
+                uint16_t p = src[x];
+                *dst++ = ((p & 0x7FE0) << 1) | ((p & 0x0200) >> 4) | (p & 0x001F);
+            }
+            return;
+        }
         for (int x = 0; x < w; x++) {
             uint32_t o = line + x * 2;
             uint16_t p = o < mac.vram_size ? *(const uint16_t *)(vram + o) : 0;
@@ -156,8 +165,11 @@ void lc_render_line(int y, uint16_t *dst)
         }
         break;
     default:
-        for (int x = 0; x < w; x++) {
-            *dst++ = pens[vram[(line + x) ^ 1]];
+        /* VRAM words are in host order: the first guest pixel is the high byte. */
+        for (int x = 0; x < w; x += 2) {
+            uint16_t p = *(const uint16_t *)(vram + line + x);
+            *dst++ = pens[p >> 8];
+            *dst++ = pens[p & 0xFF];
         }
         break;
     }

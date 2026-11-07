@@ -287,22 +287,39 @@ screenshots (`MAC_SCRIPT`), a parameter RAM file (`MAC_PRAM`) and trace
 options. `CLAUDE.md` has the details: the machines' maps and chips, the ROM
 patches, debugging options and the lessons learned along the way.
 
+### Video optimization measurements
+
+Tab5 measurements and pixel checks are recorded for the
+[Mac II converter](docs/video-optimization-experiment-2026-11-06.md),
+[packed RGB rendering](docs/packed-rgb-experiment-2026-11-07.md),
+[packed CPU writes](docs/packed-write-experiment-2026-11-07.md),
+[presentation counters](docs/presentation-followup-2026-11-07.md), and
+[LC indexed/RGB555 conversion](docs/lc-video-experiment-2026-11-07.md).
+The LC converter saves about 23% of isolated 8-bit conversion cost and
+37–39% at RGB555. Full-firmware dirty-screen observations rise 6–7%, with
+0.18–0.33% lower emulated CPU-frame throughput in those tests. These are
+per-trial results, not panel-FPS or general application-speed gains.
+Representative software tests on copied disks remain open.
+
 ## Limitations
 
 - New. On the Tab5, both machines start System 7.5.5 and run it at full
   speed in 256 colours at 640×480; the pointer and the ADB keyboard
   work. Not tried by hand yet: sound on the speaker, a Bluetooth keyboard
-  and mouse, the Tab5 Keyboard. The 12-inch monitor and thousands of
-  colours are checked in the desktop build only: both machines start in
-  256 colours on either monitor, and the LC's ROM takes thousands at
-  512×384 and turns them down at 640×480, as on a real LC.
+  and mouse, the Tab5 Keyboard. Both machines start in 256 colours on
+  either monitor in the desktop build, and the LC's ROM takes thousands at
+  512×384 and turns them down at 640×480, as on a real LC. Diskless synthetic
+  8-bit and RGB555 output is checked on the Tab5; full OS workflows with
+  the 12-inch monitor and thousands of colours remain untested there.
 - The CPU's pace is an estimate: each 68020 cycle is counted twice, for a
   16-bit path to memory; it hasn't been calibrated against a real LC or II.
 - No SCSI devices, serial ports, AppleTalk, printer, PDS cards or other
   NuBus cards; no 68851 PMMU on the II, so no virtual memory there. The LC
   has no FPU (as a stock one).
 - Millions of colours on the Mac II's card needs 32-bit addressing, which
-  the original II only gets with an extension (MODE32); not tried yet.
+  the original II only gets with an extension (MODE32). The packed RGB
+  path is tested with injected guest code; the MODE32 software workflow
+  remains untested.
 - Only the Mac II's later ROM (checksum 9779D2C4) is recognised so far.
 - The Mac's volume setting is ignored.
 - Disk images are presented through the floppy driver: copy-protected

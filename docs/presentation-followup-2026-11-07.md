@@ -156,3 +156,10 @@ All LCD pixels match in RGB, indexed and fallback modes, and all 24 shared
 builds pass. This is a graphics tradeoff, not a panel-FPS or general
 application-speed claim. LC conversion and copied-disk software tests
 remain open.
+
+The [local LC converter trial](lc-video-experiment-2026-11-07.md) retains
+paired indexed reads and a row-bounds RGB555 fast path. Full LCD pixels
+match at both depths. Dirty-screen signature observations rise 7.05%
+and 6.28%; CPU-frame throughput falls 0.18% and 0.33%. Converter sample
+shares also fall. These results keep the same counter limitations as this
+investigation and do not claim panel-FPS or general application gains.
