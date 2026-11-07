@@ -6,8 +6,11 @@ Tab5 ESP32-P4, 360 MHz, ESP-IDF 5.5.6 / GCC 14.2.0, Mac2 at -O2,
 32 MB / 200 MHz PSRAM, instructions and rodata in PSRAM. Mac2 is P4-only.
 
 Decision: retain for the 57.2% gain in emulated CPU-frame throughput on
-the RGB fill, with an observed presentation tradeoff: screen-change
-signature increments fall 18.9%. Indexed throughput remains at 60 Hz.
+the RGB fill. Screen-change signature increments fall 18.9%, but the
+[presentation follow-up](presentation-followup-2026-11-07.md) finds 52.3%
+more source-row drawing work per second, with unchanged converter cost
+per call. The lower pass counter does not establish a visible-performance
+regression. Indexed throughput remains at 60 Hz.
 This is not a claim of faster panel updates or general application speed.
 
 ## Candidate
@@ -98,7 +101,10 @@ throughput is 60.146/60.147 FPS; no indexed gain is claimed. Frame and
 signature counters measure different work. The presenter increments the
 signature when it observes a dirty screen; this does not count guest
 frames or panel refreshes. EMUINFO itself also queries the signature.
-The reason for the presentation reduction is not isolated by this trial.
+This trial does not isolate the cause of the pass-frequency reduction;
+the [subsequent counter/pacing study](presentation-followup-2026-11-07.md)
+identifies greater changed-row work per pass, with matched write demand
+restoring reference pass frequency.
 
 Full test and production P4 builds pass. The production ELF contains only
 the normal `mac2disks` namespace; only isolated test apps are flashed for
@@ -107,8 +113,8 @@ The board is restored to the candidate's normal II ROM disk-wait screen,
 with the synthetic guest removed and no guest disks mounted.
 
 OS/application compatibility, physical-input behavior and audio-by-ear
-checks remain open. Next measure rendering/presentation under the faster
-write workload and a representative disk-copy workload before making a
-visible-performance claim. LC indexed/RGB555 conversion remains another
-local target. Scratch fixtures, logs, ELFs and images stay outside the
+checks remain open. The presentation follow-up is complete; representative
+software on copied disks is still needed for a visible-performance claim.
+Shared RGB565 scaling/blending and local LC indexed/RGB555 conversion
+remain targets. Scratch fixtures, logs, ELFs and images stay outside the
 repository in `/tmp/mac2-write-2026-11-07`.
