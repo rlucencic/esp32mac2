@@ -348,12 +348,21 @@ void jmfb_render_line(int y, uint16_t *dst)
         }
         break;
     default:
-        for (int x = 0; x < w; x++) {
+        for (int x = 0; x < w; x += 2) {
             uint32_t o = line + x * 3;
-            if (o + 2 < VRAM_SIZE) {
-                dst[x] = rgb565(vram[o ^ 1], vram[(o + 1) ^ 1], vram[(o + 2) ^ 1]);
+            if (o + 5 < VRAM_SIZE) {
+                /* Host-order words contain R0:G0, B0:R1 and G1:B1. */
+                uint16_t a = *(const uint16_t *)(vram + o);
+                uint16_t b = *(const uint16_t *)(vram + o + 2);
+                uint16_t c = *(const uint16_t *)(vram + o + 4);
+                dst[x] = (a & 0xF800) | ((a & 0x00FC) << 3) | (b >> 11);
+                dst[x + 1] = ((b & 0x00F8) << 8) | ((c & 0xFC00) >> 5) | ((c & 0x00F8) >> 3);
             } else {
-                dst[x] = 0;
+                for (int i = 0; i < 2; i++) {
+                    uint32_t at = o + i * 3;
+                    dst[x + i] = at + 2 < VRAM_SIZE ?
+                        rgb565(vram[at ^ 1], vram[(at + 1) ^ 1], vram[(at + 2) ^ 1]) : 0;
+                }
             }
         }
         break;

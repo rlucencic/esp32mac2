@@ -149,3 +149,11 @@ converter matches the production source, while disk selection uses the
 test namespace. The production build is separately rebuilt and verified
 to contain the normal `mac2disks` namespace. STE's full flash snapshot
 remains available for restoration.
+
+## Packed-RGB follow-up (2026-11-07)
+
+The [paired RGB conversion trial](packed-rgb-experiment-2026-11-07.md)
+retains three native word reads per two RGB pixels, cutting isolated P4
+24-bit conversion cost a further 40.108% relative to this retained build.
+Full-firmware converter residency falls from 36.3–36.8% to 26.7–27.8%.
+The guest's slow packed-write path remains a separate target.
