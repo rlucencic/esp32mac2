@@ -132,3 +132,8 @@ the production ELF has the normal disk namespace and no probe command.
 The board is restored to the uninstrumented candidate test app's normal
 II ROM disk-wait screen, with no guest disks mounted and no synthetic code
 running. Only this report and follow-up documentation remain changed.
+
+The subsequent [shared half-weight row trial](../../esp32emu/docs/rgb565-half-blend-experiment-2026-11-07.md)
+retains a separate averaging loop for uniform vertical weight 16. Its P4
+kernel and full-firmware measurements are separate from this diagnostic
+study; they include a small CPU-throughput tradeoff and no panel-FPS claim.
