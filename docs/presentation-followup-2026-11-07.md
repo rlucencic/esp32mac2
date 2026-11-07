@@ -146,3 +146,13 @@ The shared runtime is restored to `784bba1`; only documentation is retained.
 These measurements retain the same counter limitations as this
 investigation. Direct conditional dispatch preserving the old general
 loop, LC conversion and real-software tests remain candidates.
+
+The [direct-dispatch follow-up](../../esp32emu/docs/rgb565-direct-dispatch-experiment-2026-11-07.md)
+retains the shared 3:2 specialization with the old general loop inlined.
+The non-3:2 control stays within 0.05% of the reference. Two eligible RGB
+runs show 11.13% more dirty-screen signature increments and 1.13% lower
+CPU-frame throughput; indexed throughput remains about 60.15 FPS.
+All LCD pixels match in RGB, indexed and fallback modes, and all 24 shared
+builds pass. This is a graphics tradeoff, not a panel-FPS or general
+application-speed claim. LC conversion and copied-disk software tests
+remain open.
