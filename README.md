@@ -147,7 +147,7 @@ projects, isn't supported: its ESP32-S3 is too slow for a 68020, and only
 
 ### 1. What you need
 
-- [ESP-IDF](https://github.com/espressif/esp-idf) v5.5 (developed with v5.5.4)
+- [ESP-IDF](https://github.com/espressif/esp-idf) v5.5 (developed with v5.5.6)
 - [esp32emu](https://github.com/rlucencic/esp32emu), checked out next to this project (`../esp32emu`)
 - Macintosh ROM images, which are copyrighted and **not included**: dumps of
   your own Mac LC ROM (512 KB) as `roms/lc.rom`; for the Mac II its ROM
