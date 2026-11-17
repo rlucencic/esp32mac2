@@ -47,7 +47,9 @@ bash -c '. $IDF_PATH/export.sh >/dev/null 2>&1; \
   other projects: after another one, a full `flash` (partition table and
   ROMs). NVS (WiFi, BLE pairings) is shared; this project's settings are
   namespace `mac2` (`model`, `ram_mb`, `monitor`, `pram` for the LC,
-  `pram_ii`), its drives `mac2disks`.
+  `pram_ii`), its drives `mac2disks`. On the SD card: `mac/` (the three
+  Macs' disk images; `disks/` until 2026-11-17), `mac/roms/` (the card's
+  `roms/` then): esp32emu's `tools/sd_folders.ps1` moves an old card's files.
 - `CONFIG_M68K_68020=y` (`sdkconfig.defaults`) makes `../esp32emu`'s
   Musashi a 68020; the ST and the compact Macs keep the 68000.
   `m68k_set_fpu()` turns its FPU on for the Mac II.
@@ -71,7 +73,7 @@ monitor gets: LC up to 256 at 640x480, 32,768 at 512x384; II 256 at both.
 | Path | What |
 |---|---|
 | `main/main.c` | The Mac as an `emu_machine_t`: memory, start, key map, mouse and touchpad (a count a pixel), drives, status, console |
-| `main/rom_store.c` | ROMs from their flash partitions, else matching files in the SD card's `roms/` |
+| `main/rom_store.c` | ROMs from their flash partitions, else matching files in the SD card's `mac/roms/` |
 | `main/settings.c` | NVS `mac2` |
 | `main/web/macfiles.js` | From `../esp32mac` (LGPL): Mac archives -> HFS disk images in the browser |
 | `components/mac2/` | The Macs, platform independent (`include/mac.h`) |

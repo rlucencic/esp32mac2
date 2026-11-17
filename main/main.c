@@ -119,15 +119,15 @@ static bool start(void)
     bool ii = settings.model == MAC_MODEL_II;
     if (s_cfg.rom_copy == NULL || !rom_store_load(settings.model, s_cfg.rom_copy, &rom_size, &s_rom_name)) {
         emu_set_message(ii ? "No Macintosh II ROM: put it in roms/ii.rom and flash with idf.py flash, "
-                             "or copy it into the \"roms\" folder on the SD card."
+                             "or copy it into the \"mac/roms\" folder on the SD card."
                            : "No Macintosh LC ROM: put it in roms/lc.rom and flash with idf.py flash, "
-                             "or copy it into the \"roms\" folder on the SD card.");
+                             "or copy it into the \"mac/roms\" folder on the SD card.");
         return false;
     }
     if (ii && (s_card_rom == NULL || !rom_store_load_card(s_card_rom))) {
         emu_set_message("No ROM for the Mac II's video card (the Display Card 8*24's, 341-0868): "
                         "put it in roms/mdc824.rom and flash with idf.py flash, or copy it into the "
-                        "\"roms\" folder on the SD card.");
+                        "\"mac/roms\" folder on the SD card.");
         return false;
     }
     if (s_pram_dirty) {
@@ -375,7 +375,7 @@ static const disks_size_t sizes[] = {
 };
 
 static const disks_config_t disks = {
-    .folder = "disks",
+    .folder = "mac",
     .extensions = extensions,
     .description = "Disk images (.DSK, .IMG, .IMAGE, .HFV, .ISO, .DMG)",
     .title = "Disks",
