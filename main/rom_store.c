@@ -79,7 +79,8 @@ bool rom_store_load(mac_model_t model, uint8_t *buf, uint32_t *size, const char 
     if (model > MAC_MODEL_II) {
         return false;
     }
-    if (!from_partition(model, buf, size) && !from_sd(model, buf, size)) {
+    /* the card's overrides the built-in one */
+    if (!from_sd(model, buf, size) && !from_partition(model, buf, size)) {
         return false;
     }
     *name = mac_rom_identify(buf, *size, NULL);
@@ -94,27 +95,13 @@ static bool is_card_rom(const uint8_t *buf)
     return memcmp(buf + MAC_CARD_ROM_SIZE - sizeof(tail), tail, sizeof(tail)) == 0;
 }
 
+/* The card's overrides the built-in one */
 bool rom_store_load_card(uint8_t *buf)
 {
-    const esp_partition_t *part = esp_partition_find_first(ESP_PARTITION_TYPE_DATA,
-                                                           ROM_PARTITION_TYPE, "rom_card");
-    const void *map;
-    esp_partition_mmap_handle_t handle;
-    if (part != NULL && part->size >= MAC_CARD_ROM_SIZE &&
-        esp_partition_mmap(part, 0, MAC_CARD_ROM_SIZE, ESP_PARTITION_MMAP_DATA, &map, &handle) == ESP_OK) {
-        memcpy(buf, map, MAC_CARD_ROM_SIZE);
-        esp_partition_munmap(handle);
-        if (is_card_rom(buf)) {
-            return true;
-        }
-    }
-    DIR *dir = opendir(ROM_FOLDER);
-    if (dir == NULL) {
-        return false;
-    }
     bool ok = false;
+    DIR *dir = opendir(ROM_FOLDER);
     struct dirent *e;
-    while (!ok && (e = readdir(dir)) != NULL) {
+    while (dir != NULL && !ok && (e = readdir(dir)) != NULL) {
         char path[300];
         struct stat st;
         snprintf(path, sizeof(path), "%s/%s", ROM_FOLDER, e->d_name);
@@ -130,6 +117,21 @@ bool rom_store_load_card(uint8_t *buf)
             }
         }
     }
-    closedir(dir);
-    return ok;
+    if (dir != NULL) {
+        closedir(dir);
+    }
+    if (ok) {
+        return true;
+    }
+    const esp_partition_t *part = esp_partition_find_first(ESP_PARTITION_TYPE_DATA,
+                                                           ROM_PARTITION_TYPE, "rom_card");
+    const void *map;
+    esp_partition_mmap_handle_t handle;
+    if (part == NULL || part->size < MAC_CARD_ROM_SIZE ||
+        esp_partition_mmap(part, 0, MAC_CARD_ROM_SIZE, ESP_PARTITION_MMAP_DATA, &map, &handle) != ESP_OK) {
+        return false;
+    }
+    memcpy(buf, map, MAC_CARD_ROM_SIZE);
+    esp_partition_munmap(handle);
+    return is_card_rom(buf);
 }

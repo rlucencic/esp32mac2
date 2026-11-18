@@ -13,5 +13,6 @@ files work:
 `idf.py flash` writes them to the `rom_lc`, `rom_ii` and `rom_card` flash
 partitions. The Mac II needs both its ROM and the card's.
 
-Without flashing, the emulator also finds them in the `mac/roms` folder on
-the SD card, under any file name.
+A ROM in the `mac/roms` folder on the SD card, under any file name, is used
+instead of the flashed one (recognised the same way: by its checksum, the
+video card's by its format block).
