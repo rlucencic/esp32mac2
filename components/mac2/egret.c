@@ -95,6 +95,14 @@ uint32_t host_mac_time(void)
     return (uint32_t)(days * 86400 + tm.tm_hour * 3600 + tm.tm_min * 60 + tm.tm_sec);
 }
 
+void egret_status(mac_chips_status_t *status)
+{
+    status->autopoll = eg.autopoll;
+    status->autopoll_ms = eg.autopoll_ms;
+    status->adb_devices = eg.devices;
+    status->clock_offset = eg.time_offset;
+}
+
 uint32_t egret_mac_time(void)
 {
     return (uint32_t)(host_mac_time() + eg.time_offset);

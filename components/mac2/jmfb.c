@@ -391,6 +391,19 @@ void jmfb_render_line(int y, uint16_t *dst)
     }
 }
 
+uint32_t jmfb_screen_colour(int value)
+{
+    const uint8_t *c = jm.clut[value & 0xFF];
+    return ((uint32_t)c[0] << 16) | (c[1] << 8) | c[2];
+}
+
+void jmfb_screen_layout(uint32_t *offset, uint32_t *stride)
+{
+    bool direct = jm.ramdac_mode == 0xD;
+    *offset = jm.base << ((direct ? 6 : 5) + (ctrl_convolution() ? 1 : 0));
+    *stride = jm.stride << (direct ? 3 : 2);
+}
+
 bool jmfb_screen_changed(void)
 {
     if (mac.vram_written || jm.changed) {

@@ -114,6 +114,43 @@ void mac_run_frame(void);
 void mac_get_status(mac_status_t *status);
 mac_model_t mac_model(void);
 
+/* The chips' state, for a status page: plain values copied from the
+ * emulation, safe to call from another task (no side effects)
+ */
+typedef struct {
+    bool overlay;           /* the ROM at 0 too (from power-on until the ROM's start) */
+    bool mode24;            /* 24-bit addresses (the LC's pseudo-VIA PB3, the II's VIA2 PB3) */
+    uint32_t rom_checksum;  /* the ROM's first long word */
+    uint8_t ram_config;     /* LC: the V8's RAM configuration; II: VIA2 PA7-PA6 (bank B's place) */
+    uint8_t via1_enabled;   /* VIA1's interrupts enabled: bit 0 CA2 .. 2 SR .. 6 timer 1 */
+    uint8_t via2_enabled;   /* II: VIA2's (bit 1 the slots, 4 the ASC); LC: the pseudo-VIA's
+                             * (bit 1 the slots, 4 the sound) */
+    uint8_t slots_enabled;  /* LC: the pseudo-VIA's slot enables (bit 6 the built-in video) */
+    bool scc_interrupts;    /* the SCC's master interrupt enable */
+    bool button;            /* the mouse button as the Mac has it */
+    int16_t pointer_x, pointer_y;   /* the pointer (low memory Mouse), once the OS is up */
+    uint32_t time;          /* the clock's time now (Egret's, the II's RTC): seconds since 1904, local */
+    int64_t clock_offset;   /* seconds the Mac set its clock (Egret's, the II's RTC) from the host's */
+    bool autopoll;          /* LC: Egret polls the ADB devices */
+    uint8_t autopoll_ms;
+    uint16_t adb_devices;   /* LC: the autopoll list, bit n address n */
+    uint32_t video_offset;  /* where the picture starts in video RAM */
+    uint32_t video_stride;  /* bytes a line */
+    uint8_t asc_mode;       /* 0 off, 1 FIFO, 2 wavetable */
+    bool asc_stereo;        /* FIFOs A (left) and B (right) */
+    uint16_t fifo[2];       /* bytes waiting in FIFOs A and B */
+    uint16_t fed;           /* bytes the FIFOs took during the last frame (0: idle) */
+    uint16_t voice_hz[4];   /* the wavetable voices' pitches (0 still) */
+} mac_chips_status_t;
+
+void mac_get_chips(mac_chips_status_t *status);
+
+/* The colours the screen's pixel values show now, as $RRGGBB: every one
+ * up to `max` of them, else `max` spread evenly over them (0, 17, ... 255
+ * for 16 of 256); 0 for direct colour (16 and 24 bits)
+ */
+int mac_screen_colours(uint32_t *rgb, int max);
+
 /* Free RAM as the Mac OS sees it (see ../esp32mac); false before the OS is up */
 bool mac_ram_free(uint32_t *free_bytes, uint32_t *system_free);
 

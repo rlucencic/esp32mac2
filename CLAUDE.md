@@ -57,6 +57,21 @@ bash -c '. $IDF_PATH/export.sh >/dev/null 2>&1; \
   `m68k_set_fpu()` turns its FPU on for the Mac II.
 - `../esp32emu/tools/emu_console.py PORT log N | screenshot F.png | lcd F.png | send "cmd" ... | info | reset`
   with the IDF venv's Python (`-I`). `curl http://macintosh2.local/api/status`.
+  The web page's machine card (`status_rows()` in `main/main.c`, from the
+  core's `mac_get_chips()` and `mac_screen_colours()`: plain copies, read
+  on the web server's task; `model_ops_t`'s `screen_colour` and
+  `screen_layout` give each machine's part): System (the II's NuBus
+  slots), ROM (where, checksum), Memory (24- or 32-bit addresses, the LC's
+  V8 RAM configuration or the II's banks, the overlay), Free RAM, Screen
+  (size, colours, monitor, where the picture is in video RAM, its stride),
+  Palette (the colour table's entries as swatches, every 17th at 8 bits;
+  `#rgb` where exact), Sound (the ASC: FIFO fill and playing, or the
+  wavetable voices' pitches), Mouse (pointer, button, Egret's autopoll),
+  Keyboard, Interrupts (the 68020's mask, VIA1's and the pseudo-VIA's or
+  VIA2's enabled ones, the SCC), Clock (Egret's or the RTC's time and the
+  offset the Mac set), Disks. The whole reply has 4 KB (esp32emu's
+  `STATUS_SIZE`): ~1 KB of rows in black and white, ~1.75 KB in 256
+  colours, ~2 KB with every field at its longest.
 - Flashing restarts the board and ends the user's Mac session: say so first.
 
 Console commands: the shared ones (`emu/console.h`) and the Mac's

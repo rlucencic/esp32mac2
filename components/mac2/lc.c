@@ -298,6 +298,8 @@ const model_ops_t lc_ops = {
     .screen_depth = lc_screen_depth,
     .render_line = lc_render_line,
     .screen_changed = lc_screen_changed,
+    .screen_colour = lc_screen_colour,
+    .screen_layout = lc_screen_layout,
 };
 
 void lc_init(void)

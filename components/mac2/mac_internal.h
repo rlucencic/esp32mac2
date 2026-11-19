@@ -79,6 +79,8 @@ typedef struct {
     int (*screen_depth)(void);
     void (*render_line)(int y, uint16_t *dst);
     bool (*screen_changed)(void);           /* since the last call */
+    uint32_t (*screen_colour)(int value);   /* a pixel value's colour ($RRGGBB), up to 8 bits */
+    void (*screen_layout)(uint32_t *offset, uint32_t *stride);  /* in video RAM, bytes */
 } model_ops_t;
 
 typedef struct {
@@ -233,6 +235,8 @@ void pvia_write(uint32_t address, uint8_t value);
 void pvia_vbl(bool active);
 void pvia_asc_irq(bool active);
 uint8_t pvia_video_config(void);    /* register $10: bits 0-2 depth */
+/* The RAM configuration ($01), the slot enables ($12), the interrupt enables ($13) */
+void pvia_status(uint8_t *ram_config, uint8_t *slots, uint8_t *enables);
 void lc_set_ram_config(uint8_t config);
 void lc_set_24bit(bool on);
 
@@ -244,6 +248,7 @@ void egret_event(void);
 void egret_frame(void);
 void egret_sr_written(void);
 uint32_t egret_mac_time(void);
+void egret_status(mac_chips_status_t *status);     /* autopoll, ticks, the clock's offset */
 uint32_t host_mac_time(void);       /* seconds since 1904 in local time */
 
 /* video.c: the LC's built-in video (Ariel colour table) */
@@ -255,11 +260,14 @@ void lc_screen_size(int *w, int *h);
 int lc_screen_depth(void);
 void lc_render_line(int y, uint16_t *dst);
 bool lc_screen_changed(void);
+uint32_t lc_screen_colour(int value);
+void lc_screen_layout(uint32_t *offset, uint32_t *stride);
 
 /* ii.c */
 void ii_init(void);
 void ii_slot_irq(int slot, bool active);    /* NuBus slot $9-$E */
 void ii_set_vram_window(bool direct);       /* the card's VRAM reads plainly (not packed RGB) */
+uint8_t ii_ram_bits(void);                  /* VIA2 PA6-PA7 */
 
 /* jmfb.c: the Macintosh Display Card 8*24 in slot $9 (II) */
 void jmfb_reset(void);
@@ -273,6 +281,8 @@ void jmfb_screen_size(int *w, int *h);
 int jmfb_screen_depth(void);
 void jmfb_render_line(int y, uint16_t *dst);
 bool jmfb_screen_changed(void);
+uint32_t jmfb_screen_colour(int value);
+void jmfb_screen_layout(uint32_t *offset, uint32_t *stride);
 
 /* adb.c: ADB keyboard (address 2) and mouse (3) */
 void adb_reset(void);
@@ -296,6 +306,8 @@ bool adbx_interrupt_line(void);     /* PB3 level */
 void rtc_reset(void);
 void rtc_lines(uint8_t port_b, uint8_t ddr_b);
 bool rtc_data_out(void);
+int64_t rtc_offset(void);           /* Mac time minus host time, seconds */
+uint32_t rtc_time(void);            /* the clock's time now, seconds since 1904 */
 
 /* input.c: events from other tasks */
 enum { INPUT_KEY, INPUT_MOUSE, INPUT_MOUSE_ABS };
@@ -320,11 +332,13 @@ void asc_write(uint32_t address, uint8_t value);
 void asc_event(void);
 void asc_frame_end(void);
 void asc_irq_changed(bool active);  /* in the machine: where the line goes */
+void asc_status(mac_chips_status_t *status);    /* mode, FIFOs, voices */
 
 /* chips.c */
 void scc_reset(void);
 uint8_t scc_read(uint32_t address);
 void scc_write(uint32_t address, uint8_t value);
+bool scc_interrupts_enabled(void);
 void swim_reset(void);
 uint8_t swim_access(uint32_t address, bool write, uint8_t value);
 void scsi_reset(void);

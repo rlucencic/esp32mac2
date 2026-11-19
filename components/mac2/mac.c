@@ -286,6 +286,53 @@ int mac_screen_depth(void)
     return mac.ops->screen_depth();
 }
 
+int mac_screen_colours(uint32_t *rgb, int max)
+{
+    int depth = mac.ops ? mac.ops->screen_depth() : 0;
+    if (depth < 1 || depth > 8 || max < 2) {
+        return 0;
+    }
+    int values = 1 << depth, count = values < max ? values : max;
+    int step = count < values ? (values - 1) / (count - 1) : 1;
+    for (int i = 0; i < count; i++) {
+        rgb[i] = mac.ops->screen_colour(i * step);
+    }
+    return count;
+}
+
+void mac_get_chips(mac_chips_status_t *status)
+{
+    memset(status, 0, sizeof(*status));
+    if (mac.ops == NULL) {
+        return;
+    }
+    status->overlay = mac.overlay;
+    status->mode24 = mac.addr_mask == 0x00FFFFFF;
+    status->rom_checksum = ((uint32_t)*(const uint16_t *)mac.rom << 16) | *(const uint16_t *)(mac.rom + 2);
+    status->via1_enabled = via1.ier & 0x7F;
+    if (mac.model == MAC_MODEL_LC) {
+        uint8_t enables;
+        pvia_status(&status->ram_config, &status->slots_enabled, &enables);
+        status->via2_enabled = enables;
+        egret_status(status);
+        status->time = egret_mac_time();
+    } else {
+        status->ram_config = ii_ram_bits();
+        status->via2_enabled = via2.ier & 0x7F;
+        status->clock_offset = rtc_offset();
+        status->time = rtc_time();
+    }
+    status->scc_interrupts = scc_interrupts_enabled();
+    status->button = mouse_button();
+    /* Low memory Mouse: a Point, v then h */
+    if (!mac.overlay) {
+        status->pointer_y = (int16_t)mac_peek16(LM_MOUSE);
+        status->pointer_x = (int16_t)mac_peek16(LM_MOUSE + 2);
+    }
+    mac.ops->screen_layout(&status->video_offset, &status->video_stride);
+    asc_status(status);
+}
+
 void mac_render_line_rgb565(int y, uint16_t *dst)
 {
     mac.ops->render_line(y, dst);

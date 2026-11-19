@@ -51,6 +51,7 @@ static struct {
     int16_t last[2];                /* the sample playing (held when empty) */
     int32_t dc_in[2], dc_out[2];    /* the output's DC blocker */
     uint32_t pos;                   /* samples of this frame played */
+    uint16_t fed, fed_last;         /* bytes the FIFOs took this frame, the last */
     int16_t frame[FRAME_LINES][2];
 } asc;
 
@@ -222,6 +223,7 @@ uint8_t asc_read(uint32_t address)
 static void fifo_write(int ch, uint8_t value)
 {
     if (asc.count[ch] < FIFO_SIZE) {
+        asc.fed++;
         asc.fifo[ch][asc.wr[ch]] = value;
         asc.wr[ch] = (asc.wr[ch] + 1) & (FIFO_SIZE - 1);
         asc.count[ch]++;
@@ -295,6 +297,19 @@ void asc_write(uint32_t address, uint8_t value)
     schedule();
 }
 
+void asc_status(mac_chips_status_t *status)
+{
+    status->asc_mode = asc.v8 ? 1 : asc.regs[R_MODE] & 3;
+    status->asc_stereo = stereo();
+    status->fifo[0] = asc.count[0];
+    status->fifo[1] = asc.count[1];
+    status->fed = asc.fed_last;
+    /* A voice's phase goes round its 512-byte table (24 bits) once a cycle */
+    for (int v = 0; v < 4; v++) {
+        status->voice_hz[v] = (uint16_t)((uint64_t)asc.incr[v] * MAC_AUDIO_HZ >> 24);
+    }
+}
+
 /* ---- Output ---- */
 
 #define RING        4096            /* stereo frames, power of two */
@@ -320,6 +335,8 @@ void asc_frame_end(void)
 {
     advance();
     asc.pos = 0;
+    asc.fed_last = asc.fed;
+    asc.fed = 0;
     if (!s_enabled) {
         return;
     }

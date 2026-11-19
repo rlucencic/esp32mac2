@@ -175,6 +175,24 @@ void lc_render_line(int y, uint16_t *dst)
     }
 }
 
+/* With fewer bits the V8 fills the low ones with 1s */
+uint32_t lc_screen_colour(int value)
+{
+    int depth = lc_screen_depth();
+    int index = depth >= 8 ? value & 0xFF : ((value << (8 - depth)) | ((1 << (8 - depth)) - 1)) & 0xFF;
+    const uint8_t *c = ar.clut[index];
+    return ((uint32_t)c[0] << 16) | (c[1] << 8) | c[2];
+}
+
+/* 1024 bytes a line up to 8 bits, 2 a pixel at 16 */
+void lc_screen_layout(uint32_t *offset, uint32_t *stride)
+{
+    int w, h;
+    lc_screen_size(&w, &h);
+    *offset = 0;
+    *stride = (pvia_video_config() & 7) == 4 ? (uint32_t)w * 2 : 1024;
+}
+
 bool lc_screen_changed(void)
 {
     if (mac.vram_written || ar.changed) {

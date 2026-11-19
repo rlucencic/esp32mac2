@@ -58,6 +58,11 @@ static void update_windows(void)
     mac.vram_window = ii.vram_direct ? VRAM_WINDOW : 0;
 }
 
+uint8_t ii_ram_bits(void)
+{
+    return ii.ram_bits;
+}
+
 void ii_set_vram_window(bool direct)
 {
     ii.vram_direct = direct;
@@ -448,6 +453,8 @@ const model_ops_t ii_ops = {
     .screen_depth = jmfb_screen_depth,
     .render_line = jmfb_render_line,
     .screen_changed = jmfb_screen_changed,
+    .screen_colour = jmfb_screen_colour,
+    .screen_layout = jmfb_screen_layout,
 };
 
 void ii_init(void)

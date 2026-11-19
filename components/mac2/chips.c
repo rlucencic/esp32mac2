@@ -22,6 +22,11 @@ void scc_reset(void)
     memset(&scc, 0, sizeof(scc));
 }
 
+bool scc_interrupts_enabled(void)
+{
+    return (scc.wr[0][9] & 0x08) != 0;      /* MIE */
+}
+
 uint8_t scc_read(uint32_t address)
 {
     int ch = (address >> 1) & 1;            /* 1 = A */

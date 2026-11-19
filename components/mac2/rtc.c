@@ -37,9 +37,19 @@ static struct {
 #define PB_RTC_CLOCK    0x02
 #define PB_RTC_ENABLE   0x04        /* active low */
 
+int64_t rtc_offset(void)
+{
+    return rtc.offset;
+}
+
 static uint32_t mac_time(void)
 {
     return (uint32_t)(host_mac_time() + rtc.offset);
+}
+
+uint32_t rtc_time(void)
+{
+    return mac_time();
 }
 
 void rtc_reset(void)

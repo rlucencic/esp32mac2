@@ -84,6 +84,13 @@ uint8_t pvia_video_config(void)
     return pv.regs[0x10];
 }
 
+void pvia_status(uint8_t *ram_config, uint8_t *slots, uint8_t *enables)
+{
+    *ram_config = pv.config;
+    *slots = pv.regs[0x12] & 0x7F;
+    *enables = pv.regs[0x13] & 0x7F;
+}
+
 uint8_t pvia_read(uint32_t address)
 {
     uint32_t r = address & 0x13;
