@@ -48,6 +48,7 @@ It's the colour sibling of [esp32mac](https://github.com/rlucencic/esp32mac)
 and LC III), next to [esp32ste](https://github.com/rlucencic/esp32ste)
 (Atari STE), [esp32cpc](https://github.com/rlucencic/esp32cpc) (Amstrad
 CPC), [esp32zx](https://github.com/rlucencic/esp32zx) (ZX Spectrum),
+[esp32oric](https://github.com/rlucencic/esp32oric) (Oric Atmos and Oric-1),
 [esp32cbm](https://github.com/rlucencic/esp32cbm) (Commodore 64 and 128),
 [esp32xl](https://github.com/rlucencic/esp32xl) (Atari 800XL and 130XE),
 [esp32msx](https://github.com/rlucencic/esp32msx) (MSX1 and MSX2),
