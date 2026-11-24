@@ -331,6 +331,10 @@ Representative software tests on copied disks remain open.
 - Disk images are presented through the floppy driver: copy-protected
   originals that talk to the floppy hardware directly don't work.
 
+## Roadmap
+
+See [TODO.md](TODO.md) for proposed work and how to verify it.
+
 ## Credits
 
 - [Musashi](https://github.com/kstenerud/Musashi) by Karl Stenerud (MIT
